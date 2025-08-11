@@ -359,6 +359,11 @@ export class OrthoRenderer {
       this.buildingsBuilt = false; // Reset buildings flag for new map
       this.initializedView = true;
     }
+    // If a saved camera state skipped initialization earlier, ensure ground exists
+    if (!this.groundBuilt && map.length && map[0].length) {
+      const h = map.length; const w = map[0].length;
+      this.buildGround(w, h);
+    }
     // Simple rebuild each frame for now (small maps); optimize later.
     this.gridGroup.clear();
     this.infraGroup.clear(); // Only clear dynamic infrastructure (poles, pipes, power lines)
@@ -680,14 +685,22 @@ export class OrthoRenderer {
     if (this.groundBuilt) return;
     this.groundGroup.clear();
     const tileGeom = new THREE.PlaneGeometry(this.tileSize, this.tileSize);
-    // Subtle color palette for ground variation
-    const palette = [0x2d2f33, 0x303338, 0x34373c, 0x383c42];
+    // Natural grass-like color palette (moderate saturation, slight value differences)
+    // Picked to avoid overly neon greens while giving readable variation under different overlays.
+    const palette = [0x2f5d26, 0x35662b, 0x3b6f30, 0x417735, 0x477f3a];
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
         // deterministic pseudo-random pick based on coordinates
         const hash = (x * 73856093) ^ (y * 19349663);
-        const color = palette[Math.abs(hash) % palette.length];
-        const mat = new THREE.MeshStandardMaterial({ color, roughness: 1, metalness: 0 });
+        let color = palette[Math.abs(hash) % palette.length];
+        // Apply a tiny brightness jitter (deterministic) for a less tiled look
+        const jitter = ((hash >> 8) & 0xff) / 255; // 0..1
+        const shade = 0.92 + (jitter * 0.06);      // 0.92 .. 1.08
+        const r = Math.min(255, Math.round(((color >> 16) & 0xff) * shade));
+        const g = Math.min(255, Math.round(((color >> 8) & 0xff) * shade));
+        const b = Math.min(255, Math.round((color & 0xff) * shade));
+        color = (r << 16) | (g << 8) | b;
+        const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.95, metalness: 0 });
         const quad = new THREE.Mesh(tileGeom, mat);
         quad.rotation.x = -Math.PI / 2;
         quad.position.set(x * this.tileSize, -0.02, y * this.tileSize);
@@ -697,7 +710,7 @@ export class OrthoRenderer {
     // Add a subtle hemisphere light for ambient sky/ground contrast if not already present
     const hasHemi = this.scene.children.some(c => (c as any).isHemisphereLight);
     if (!hasHemi) {
-      const hemi = new THREE.HemisphereLight(0xddeeff, 0x222222, 0.35);
+      const hemi = new THREE.HemisphereLight(0xcfe8ff, 0x223311, 0.35);
       this.scene.add(hemi);
     }
     this.groundBuilt = true;
