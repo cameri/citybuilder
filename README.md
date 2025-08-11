@@ -48,14 +48,33 @@ CityBuilder is a city-building simulation game that allows players to design, bu
 - **Run:** `npm run dev` then open the printed localhost URL.
 - **Reset save:** Clear localStorage key `sc4like.save.v1`.
 
-## Features
+## Status: Phase 1 COMPLETE ✅
 
-- **City Planning:** Design your city layout with residential, commercial, and industrial zones.
-- **Infrastructure:** Build roads, power plants, water systems, and public transportation.
-- **Public Services:** Manage police, fire departments, hospitals, and schools to keep your citizens happy and safe.
-- **Economy:** Balance the city budget, set tax rates, and attract businesses.
-- **Disasters:** Handle natural disasters like earthquakes and fires.
-- **Growth:** Watch your city grow and evolve based on your decisions.
+**Phase 1 - Core Simulation Foundation** has been successfully implemented! The game now features:
+
+- ✅ **Complete ECS Architecture** - Entity-Component-System with all core systems
+- ✅ **Orthographic 3D Renderer** - Three.js with isometric camera and real-time rendering
+- ✅ **Interactive Tools Palette** - Road, zoning (R/C/I), bulldoze, and inspect tools
+- ✅ **Rectangular Zoning Brush** - Drag to create zones of any size
+- ✅ **Working City Simulation** - Population, economy, development, and tax system
+- ✅ **Seeded RNG** - Deterministic random number generation for reproducible gameplay
+- ✅ **Full Persistence** - Save/load with localStorage, autosave, and HMR preservation
+- ✅ **Real-time UI** - HUD with funds, population, employment rate, and time controls
+- ✅ **Mouse Interaction** - Click to place/inspect, drag to zone areas
+- ✅ **Blueprint System** - Data-driven building and infrastructure definitions
+
+**Current Status**: The minimal playable city simulation loop is working. Users can zone areas, place roads, manage time, and watch population & treasury change in real-time with a complete UI.
+
+### What's Working Now
+
+- Place roads with cost and upkeep
+- Zone residential, commercial, and industrial areas
+- Watch buildings develop over time
+- Monitor population growth and employment
+- Manage city finances with tax rates
+- Save and load game state
+- HMR-safe development (state preserved across code edits)
+- Full employment simulation (residents ↔ jobs balance)
 
 ## Usage
 
