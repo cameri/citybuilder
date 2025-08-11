@@ -17,6 +17,7 @@ export type Action =
   | { type: 'PLACE_SERVICE'; x: number; y: number; blueprintId: string }
   // Infrastructure line tools
   | { type: 'PLACE_POWER_POLE_LINE'; line: { x0: number; y0: number; x1: number; y1: number } }
+  | { type: 'PLACE_POWER_POLE'; x: number; y: number } // single-tile pole placement
   | { type: 'PLACE_WATER_PIPE_LINE'; line: { x0: number; y0: number; x1: number; y1: number } }
   | { type: 'PLACE_GAS_PIPE_LINE'; line: { x0: number; y0: number; x1: number; y1: number } };
 

@@ -307,7 +307,7 @@ export class ToolsPalette {
       const target = e.target as HTMLElement;
       const clickedOnPalette = target.closest('#tools-palette');
       const clickedOnMenu = target.closest('.category-menu');
-      
+
       if (!clickedOnPalette && !clickedOnMenu) {
         this.hideCategoryMenu();
         this.pinnedMenuCategory = null;

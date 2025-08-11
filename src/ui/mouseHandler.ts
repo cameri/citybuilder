@@ -370,6 +370,39 @@ export function createToolMouseHandler(
         const clampedX = clamp(pos.tileX, 0, mapSize.width - 1);
         const clampedY = clamp(pos.tileY, 0, mapSize.height - 1);
         onAction({ type: 'INSPECT_TILE', x: clampedX, y: clampedY });
+      } else if (button === 0 && activeTool === 'infra_powerpole' && !isDragging) {
+        // Single-tile power pole placement
+        const clampedX = clamp(pos.tileX, 0, mapSize.width - 1);
+        const clampedY = clamp(pos.tileY, 0, mapSize.height - 1);
+        onAction({ type: 'PLACE_POWER_POLE', x: clampedX, y: clampedY });
+      } else if (button === 0 && (activeTool.startsWith('svc_') || activeTool.startsWith('infra_')) && !isDragging) {
+        // Service building and infrastructure placement
+        const clampedX = clamp(pos.tileX, 0, mapSize.width - 1);
+        const clampedY = clamp(pos.tileY, 0, mapSize.height - 1);
+
+        // Map tool IDs to blueprint IDs
+        const blueprintMap: Record<string, string> = {
+          'svc_firestation': 'svc.firestation',
+          'svc_hospital': 'svc.hospital',
+          'svc_preschool': 'svc.school.pre',
+          'svc_middleschool': 'svc.school.middle',
+          'svc_highschool': 'svc.school.high',
+          'svc_university': 'svc.school.university',
+          'svc_library': 'svc.library',
+          'svc_power_small': 'svc.power.small',
+          'svc_school_basic': 'svc.school.basic',
+          'svc_clinic_basic': 'svc.clinic.basic',
+          'svc_police_small': 'svc.police.small',
+          'infra_powerstation': 'infra.powerstation',
+          'infra_landfill': 'infra.landfill',
+          'infra_watertower': 'infra.watertower',
+          'infra_refinery': 'infra.refinery'
+        };
+
+        const blueprintId = blueprintMap[activeTool];
+        if (blueprintId) {
+          onAction({ type: 'PLACE_SERVICE', x: clampedX, y: clampedY, blueprintId });
+        }
       }
     },
     onHover: (pos: MousePosition | null, _tile?: {x:number;y:number}|null, _rect?: {x:number;y:number;w:number;h:number}, _line?: {x0:number;y0:number;x1:number;y1:number}, blocked?: boolean) => {

@@ -51,6 +51,10 @@ addSystem(world, powerDistributionSystem);
 addSystem(world, trafficAggregationSystem);
 addSystem(world, persistenceSystem);
 
+// Expose world for debugging / automated tests
+;(window as any).__world = world;
+console.debug('[debug] world exposed as __world');
+
 // Demo: enqueue a comprehensive demo city with all zone types
 if (!world._demoSeeded) {
   // Main road infrastructure (north-south and east-west)

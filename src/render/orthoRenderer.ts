@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { BLUEPRINTS } from '../blueprints/index.js';
 
 export interface OrthoRendererOptions {
   tileSize?: number; // world units per tile
@@ -538,6 +539,36 @@ export class OrthoRenderer {
             this.infraGroup.add(north);
           }
         }
+
+        // Service buildings and infrastructure buildings (render only at the root tile)
+        if (tile.building && tile.buildingRoot && tile.buildingRoot.x === tile.x && tile.buildingRoot.y === tile.y) {
+          const bp = BLUEPRINTS[tile.building];
+          if (bp && bp.color) {
+            const buildingHeight = Math.max(0.5, bp.size.w * bp.size.h * 0.3); // Height scales with size
+            const buildingGeom = new THREE.BoxGeometry(
+              bp.size.w * this.tileSize * 0.9,
+              buildingHeight,
+              bp.size.h * this.tileSize * 0.9
+            );
+            const buildingMat = new THREE.MeshStandardMaterial({
+              color: bp.color,
+              roughness: 0.8,
+              metalness: 0.1
+            });
+            const building = new THREE.Mesh(buildingGeom, buildingMat);
+
+            // Position at the center of the building footprint
+            const centerX = tile.x + (bp.size.w - 1) / 2;
+            const centerY = tile.y + (bp.size.h - 1) / 2;
+            building.position.set(
+              centerX * this.tileSize,
+              buildingHeight / 2 + 0.25, // Slightly above tile level
+              centerY * this.tileSize
+            );
+            building.userData.building = tile.building;
+            this.infraGroup.add(building);
+          }
+        }
       }
     }
 
@@ -547,6 +578,7 @@ export class OrthoRenderer {
       const poleSet = new Set(polePositions.map(p => p.x + ',' + p.y));
       const drawn = new Set<string>(); // avoid duplicate both directions
       const makeKey = (a:{x:number;y:number}, b:{x:number;y:number}) => a.x < b.x || (a.x===b.x && a.y < b.y) ? `${a.x},${a.y}-${b.x},${b.y}` : `${b.x},${b.y}-${a.x},${a.y}`;
+  const logged = new Set<string>(); // track logged connections this frame
 
       const addSagLine = (ax:number, ay:number, bx:number, by:number) => {
         const start = new THREE.Vector3(ax * this.tileSize, 0.9, ay * this.tileSize);
@@ -575,7 +607,7 @@ export class OrthoRenderer {
           const qx = p.x+dx, qy = p.y;
           if (poleSet.has(qx+','+qy)) {
             const key = makeKey(p,{x:qx,y:qy});
-            if (!drawn.has(key)) { drawn.add(key); addSagLine(p.x,p.y,qx,qy); }
+            if (!drawn.has(key)) { drawn.add(key); addSagLine(p.x,p.y,qx,qy); if(!logged.has(key)){ console.debug('[power] connect line', { from: p, to: {x:qx,y:qy} }); logged.add(key);} }
             break; // only connect nearest in this direction
           }
         }
@@ -584,7 +616,7 @@ export class OrthoRenderer {
           const qx = p.x, qy = p.y+dy;
           if (poleSet.has(qx+','+qy)) {
             const key = makeKey(p,{x:qx,y:qy});
-            if (!drawn.has(key)) { drawn.add(key); addSagLine(p.x,p.y,qx,qy); }
+            if (!drawn.has(key)) { drawn.add(key); addSagLine(p.x,p.y,qx,qy); if(!logged.has(key)){ console.debug('[power] connect line', { from: p, to: {x:qx,y:qy} }); logged.add(key);} }
             break;
           }
         }

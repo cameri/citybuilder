@@ -88,6 +88,7 @@ export const zoningSystem: System = createSystem('zoning', 10, (ctx: SystemConte
         const length = Math.max(Math.abs(line.x1 - line.x0), Math.abs(line.y1 - line.y0));
         const maxSpacing = 5;
         const neededPoles = Math.floor(length / maxSpacing) + 2; // ensure endpoints
+    const created: {x:number;y:number}[] = [];
         for (let i=0; i<neededPoles; i++) {
           const t = i / (neededPoles - 1);
           const px = Math.round(line.x0 + (line.x1 - line.x0) * t);
@@ -98,9 +99,24 @@ export const zoningSystem: System = createSystem('zoning', 10, (ctx: SystemConte
             tile.building = 'infra.powerpole';
             tile.buildingRoot = { x: px, y: py };
             tile.developed = true;
+      created.push({x:px,y:py});
           }
         }
-        console.debug('[power] poles placed line', line);
+    console.debug('[power] poles placed line', line, 'count', created.length, created);
+        break; }
+      case 'PLACE_POWER_POLE': {
+        const { x, y } = a as any;
+        if (!map[y] || !map[y][x]) break;
+        const tile = map[y][x];
+  // If there's already a pole here, do nothing (avoid redundant work / cost)
+    if (tile.powerPole) { console.debug('[power] pole already exists', { x, y }); break; }
+        tile.powerPole = true;
+        tile.building = 'infra.powerpole';
+        tile.buildingRoot = { x, y };
+        tile.developed = true;
+  // No automatic intermediate pole insertion. Visual connection lines are rendered
+  // by orthoRenderer between nearest poles within 5 tiles.
+    console.debug('[power] pole placed', { x, y });
         break; }
       case 'PLACE_WATER_PIPE_LINE': {
         const { line } = a as any;
