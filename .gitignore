@@ -26,3 +26,6 @@ coverage/
 
 # Misc
 *.local
+
+# Playwright
+.playwright-mcp/

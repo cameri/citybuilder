@@ -36,10 +36,34 @@ addSystem(world, populationSystem);
 addSystem(world, economySystem);
 addSystem(world, persistenceSystem);
 
-// Demo: enqueue a couple of zone actions
+// Demo: enqueue a comprehensive demo city with all zone types
 if (!world._demoSeeded) {
-  enqueueAction(world, { type: 'SET_ZONE', x: 2, y: 2, zone: 'R' });
-  enqueueAction(world, { type: 'SET_ZONE', x: 3, y: 2, zone: 'R' });
+  // Main road infrastructure (north-south and east-west)
+  for (let i = 0; i < 16; i++) {
+    enqueueAction(world, { type: 'PLACE_ROAD', x: 8, y: i }); // Vertical main road
+    enqueueAction(world, { type: 'PLACE_ROAD', x: i, y: 8 }); // Horizontal main road
+  }
+  
+  // Residential district (northwest quadrant)
+  enqueueAction(world, { type: 'ZONE_RECT', rect: { x: 2, y: 2, w: 4, h: 4 }, zone: 'R' });
+  enqueueAction(world, { type: 'ZONE_RECT', rect: { x: 10, y: 2, w: 4, h: 4 }, zone: 'R' });
+  
+  // Commercial district (city center - around main intersection)
+  enqueueAction(world, { type: 'ZONE_RECT', rect: { x: 6, y: 6, w: 4, h: 4 }, zone: 'C' });
+  
+  // Industrial district (southeast quadrant)
+  enqueueAction(world, { type: 'ZONE_RECT', rect: { x: 11, y: 11, w: 4, h: 4 }, zone: 'I' });
+  
+  // Additional roads for access
+  for (let i = 2; i < 7; i++) {
+    enqueueAction(world, { type: 'PLACE_ROAD', x: i, y: 5 }); // Residential access road
+    enqueueAction(world, { type: 'PLACE_ROAD', x: 5, y: i }); // Residential access road
+  }
+  for (let i = 10; i < 15; i++) {
+    enqueueAction(world, { type: 'PLACE_ROAD', x: i, y: 10 }); // Industrial access road
+    enqueueAction(world, { type: 'PLACE_ROAD', x: 10, y: i }); // Industrial access road
+  }
+  
   world._demoSeeded = true;
 }
 
