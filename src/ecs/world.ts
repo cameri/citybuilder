@@ -5,7 +5,7 @@ import type { ComponentStore, SystemContext, World } from './types';
 // Simple map / zoning model kept lightweight for Phase 1 scaffold
 export type ZoneType = 'R' | 'C' | 'I' | null;
 export interface Tile {
-  x: number; y: number; zone: ZoneType; developed: boolean;
+  x: number; y: number; zone: ZoneType; developed: boolean; progress?: number; // 0..1 construction
 }
 
 export interface WorldOptions {
@@ -28,7 +28,7 @@ export function createWorld(_options: WorldOptions = {}): WorldImpl {
   const map: Tile[][] = [];
   for (let y = 0; y < height; y++) {
     const row: Tile[] = [];
-    for (let x = 0; x < width; x++) row.push({ x, y, zone: null, developed: false });
+  for (let x = 0; x < width; x++) row.push({ x, y, zone: null, developed: false, progress: 0 });
     map.push(row);
   }
   return {
