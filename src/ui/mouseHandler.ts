@@ -14,7 +14,14 @@ export interface MouseInteraction {
   onMouseDown?: (pos: MousePosition, button: number) => void;
   onMouseUp?: (pos: MousePosition, button: number) => void;
   onMouseClick?: (pos: MousePosition, button: number) => void;
-  onHover?: (pos: MousePosition | null) => void; // null when not hovering over valid tile
+  // Extended hover signature supports optional preview data (tile, drag rect, drag line, blocked flag)
+  onHover?: (
+    pos: MousePosition | null,
+    tile?: { x: number; y: number } | null,
+    dragRect?: { x: number; y: number; w: number; h: number },
+    dragLine?: { x0: number; y0: number; x1: number; y1: number },
+    dragBlocked?: boolean
+  ) => void; // null when not hovering over valid tile
   onCancel?: () => void; // Escape to cancel area selection
 }
 
@@ -25,7 +32,6 @@ export class MouseHandler {
   private isMouseDown = false;
   private lastMousePos?: MousePosition;
   private camera?: THREE.OrthographicCamera;
-  private scene?: THREE.Scene;
   private isPanning = false;
   private wasPanning = false;
   private lastPanX = 0;
@@ -42,9 +48,9 @@ export class MouseHandler {
     this.bindEvents();
   }
 
-  setCamera(camera: THREE.OrthographicCamera, scene: THREE.Scene) {
+  setCamera(camera: THREE.OrthographicCamera, _scene: THREE.Scene) {
     this.camera = camera;
-    this.scene = scene;
+    // scene currently unused (reserved for future ray-based picking)
   }
 
   setOnCameraPan(callback: (deltaX: number, deltaY: number) => void) {
@@ -334,9 +340,9 @@ export function createToolMouseHandler(
         onAction({ type: 'INSPECT_TILE', x: clampedX, y: clampedY });
       }
     },
-    onHover: (pos, _tile, _rect, _line, blocked) => {
+    onHover: (pos: MousePosition | null, _tile?: {x:number;y:number}|null, _rect?: {x:number;y:number;w:number;h:number}, _line?: {x0:number;y0:number;x1:number;y1:number}, blocked?: boolean) => {
       dragBlocked = !!blocked;
-      onHover?.(pos, pos ? { x: pos.tileX, y: pos.tileY } : null, lastDragRect || undefined, lastDragLine || undefined, dragBlocked);
+      onHover?.(pos, pos && pos.tileX !== undefined ? { x: pos.tileX, y: pos.tileY } : null, lastDragRect || undefined, lastDragLine || undefined, dragBlocked);
     },
     onCancel: () => {
       if (isDragging && activeTool === 'road') {
