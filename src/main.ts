@@ -142,6 +142,12 @@ viewControls.setOnResetZoom(() => {
   viewControls.saveCameraState(ortho.getCameraState());
 });
 
+// Pan buttons
+viewControls.setOnPan((dx, dz) => {
+  ortho.translateCameraWorld(dx, dz);
+  viewControls.saveCameraState(ortho.getCameraState());
+});
+
 // Restore camera state from local storage on startup
 const savedCameraState = viewControls.loadCameraState();
 if (savedCameraState) {
@@ -180,19 +186,25 @@ mouseHandler.setOnCameraPan((deltaX, deltaY) => {
   viewControls.saveCameraState(ortho.getCameraState());
 });
 
-// Connect tools palette to mouse handler
-let currentTool = toolsPalette.getActiveTool();
-toolsPalette.setOnToolChange((tool) => {
+// Active tool persistence key
+const ACTIVE_TOOL_KEY = 'simcity-active-tool';
+
+// Helper to apply a tool selection everywhere
+function applyActiveTool(tool: any) {
   currentTool = tool;
+  ortho.setActiveTool(tool);
+  // Persist selection
+  try { localStorage.setItem(ACTIVE_TOOL_KEY, tool); } catch {}
+
+  // Reverted: no road collision detection / blocked preview for performance simplicity
+
   mouseHandler.setInteraction(createToolMouseHandler(tool,
     (action) => {
       enqueueAction(world, action);
-      // Force immediate processing for responsive UI
       (world as any).timeAccumulator += (world as any).fixedDelta;
       updateWorld(world, 0);
     },
-    (pos, tile) => {
-      // Handle hover for zone inspection and highlighting
+    (pos, tile, dragRect, dragLine, _dragBlocked) => {
       if (pos && tile) {
         ortho.setHoveredTile(tile.x, tile.y);
         zoneInspector.showTile(tile, world.map);
@@ -200,29 +212,53 @@ toolsPalette.setOnToolChange((tool) => {
         ortho.setHoveredTile(null, null);
         zoneInspector.hideTile();
       }
+      // Simple road line preview (no collision detection)
+      if (tool === 'road' && dragLine) {
+        ortho.setRoadLine(dragLine);
+      } else {
+        ortho.setRoadLine(null);
+      }
+      if (dragRect && tool.startsWith && tool.startsWith('zone_')) {
+        let zone: 'R'|'C'|'I' = 'R';
+        if (tool === 'zone_commercial') zone = 'C'; else if (tool === 'zone_industrial') zone = 'I';
+        ortho.setSelectionRect({ ...dragRect, zone });
+      } else {
+        ortho.setSelectionRect(null);
+      }
     },
-    { width: 16, height: 16 } // Pass map size
+    { width: 16, height: 16 }
   ));
+}
+
+// Connect tools palette to mouse handler with persistence
+let currentTool = toolsPalette.getActiveTool();
+toolsPalette.setOnToolChange((tool) => {
+  applyActiveTool(tool);
 });
 
-// Initialize with default tool
-mouseHandler.setInteraction(createToolMouseHandler(currentTool,
-  (action) => {
-    enqueueAction(world, action);
-    (world as any).timeAccumulator += (world as any).fixedDelta;
-    updateWorld(world, 0);
-  },
-  (pos, tile) => {
-    if (pos && tile) {
-      ortho.setHoveredTile(tile.x, tile.y);
-      zoneInspector.showTile(tile, world.map);
-    } else {
-      ortho.setHoveredTile(null, null);
-      zoneInspector.hideTile();
-    }
-  },
-  { width: 16, height: 16 } // Pass map size
-));
+// Load persisted tool if available, else use default
+try {
+  const savedTool = localStorage.getItem(ACTIVE_TOOL_KEY);
+  if (savedTool && savedTool !== currentTool) {
+    // setActiveTool will trigger callback which calls applyActiveTool
+    toolsPalette.setActiveTool(savedTool as any);
+  } else {
+    // No saved or same as default; apply manually
+    applyActiveTool(currentTool);
+  }
+} catch {
+  applyActiveTool(currentTool);
+}
+
+// Global Escape key to cancel zoning drag
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    // Clear selection preview
+    ortho.setSelectionRect(null);
+  ortho.setRoadLine(null);
+  mouseHandler.cancelCurrentInteraction();
+  }
+});
 // FPS counter setup
 let fpsLast = performance.now();
 let fpsFrames = 0;

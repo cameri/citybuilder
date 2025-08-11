@@ -15,6 +15,7 @@ export class ViewControls {
   private onZoomIn?: () => void;
   private onZoomOut?: () => void;
   private onResetZoom?: () => void;
+  private onPan?: (dx: number, dz: number) => void;
   private storageKey = 'simcity-camera-state';
 
   constructor(options: ViewControlsOptions) {
@@ -55,6 +56,12 @@ export class ViewControls {
         font: 11px monospace;
         min-width: 40px;
       ">🎯</button>
+      <div style="display:grid;grid-template-columns:repeat(3,28px);grid-gap:2px;justify-content:center;margin:2px 0 4px 0;">
+        <button id="view-pan-up" style="grid-column:2;background:#333;border:1px solid #555;color:#fff;cursor:pointer;border-radius:3px;">⬆️</button>
+        <button id="view-pan-left" style="grid-column:1;background:#333;border:1px solid #555;color:#fff;cursor:pointer;border-radius:3px;">⬅️</button>
+        <button id="view-pan-right" style="grid-column:3;background:#333;border:1px solid #555;color:#fff;cursor:pointer;border-radius:3px;">➡️</button>
+        <button id="view-pan-down" style="grid-column:2;background:#333;border:1px solid #555;color:#fff;cursor:pointer;border-radius:3px;">⬇️</button>
+      </div>
       <button id="view-zoom-in" style="
         background: #333;
         border: 1px solid #555;
@@ -91,7 +98,11 @@ export class ViewControls {
   }
 
   private setupEventListeners() {
-    const centerBtn = this.container.querySelector('#view-center') as HTMLButtonElement;
+  const centerBtn = this.container.querySelector('#view-center') as HTMLButtonElement;
+  const panUpBtn = this.container.querySelector('#view-pan-up') as HTMLButtonElement;
+  const panDownBtn = this.container.querySelector('#view-pan-down') as HTMLButtonElement;
+  const panLeftBtn = this.container.querySelector('#view-pan-left') as HTMLButtonElement;
+  const panRightBtn = this.container.querySelector('#view-pan-right') as HTMLButtonElement;
     const zoomInBtn = this.container.querySelector('#view-zoom-in') as HTMLButtonElement;
     const zoomOutBtn = this.container.querySelector('#view-zoom-out') as HTMLButtonElement;
     const resetZoomBtn = this.container.querySelector('#view-reset-zoom') as HTMLButtonElement;
@@ -120,8 +131,18 @@ export class ViewControls {
       }
     });
 
-    // Add hover effects
-    [centerBtn, zoomInBtn, zoomOutBtn, resetZoomBtn].forEach(btn => {
+    // Pan buttons
+    const panStep = 2; // world units per click
+    const doPan = (dx: number, dz: number) => {
+      if (this.onPan) this.onPan(dx, dz);
+    };
+    panUpBtn.addEventListener('click', () => doPan(0, -panStep));
+    panDownBtn.addEventListener('click', () => doPan(0, panStep));
+    panLeftBtn.addEventListener('click', () => doPan(-panStep, 0));
+    panRightBtn.addEventListener('click', () => doPan(panStep, 0));
+
+    // Add hover effects (include new buttons)
+    [centerBtn, zoomInBtn, zoomOutBtn, resetZoomBtn, panUpBtn, panDownBtn, panLeftBtn, panRightBtn].forEach(btn => {
       btn.addEventListener('mouseenter', () => {
         btn.style.background = '#444';
         btn.style.borderColor = '#666';
@@ -135,6 +156,10 @@ export class ViewControls {
 
   setOnCenter(callback: () => void) {
     this.onCenter = callback;
+  }
+
+  setOnPan(callback: (dx: number, dz: number) => void) {
+    this.onPan = callback;
   }
 
   setOnZoomIn(callback: () => void) {

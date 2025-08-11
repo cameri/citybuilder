@@ -15,6 +15,7 @@ export interface MouseInteraction {
   onMouseUp?: (pos: MousePosition, button: number) => void;
   onMouseClick?: (pos: MousePosition, button: number) => void;
   onHover?: (pos: MousePosition | null) => void; // null when not hovering over valid tile
+  onCancel?: () => void; // Escape to cancel area selection
 }
 
 export class MouseHandler {
@@ -26,6 +27,7 @@ export class MouseHandler {
   private camera?: THREE.OrthographicCamera;
   private scene?: THREE.Scene;
   private isPanning = false;
+  private wasPanning = false;
   private lastPanX = 0;
   private lastPanY = 0;
   private onCameraPan?: (deltaX: number, deltaY: number) => void;
@@ -51,6 +53,14 @@ export class MouseHandler {
 
   setInteraction(interaction: MouseInteraction) {
     this.interaction = interaction;
+  }
+
+  getInteraction(): MouseInteraction | undefined {
+    return this.interaction;
+  }
+
+  cancelCurrentInteraction() {
+    this.interaction?.onCancel?.();
   }
 
   private bindEvents() {
@@ -133,23 +143,24 @@ export class MouseHandler {
     const pos = this.screenToWorld(e.clientX, e.clientY);
     this.lastMousePos = pos;
 
-    // Handle camera panning with left-click drag
+    // Handle camera panning with Alt+left-click drag
     if (this.isPanning) {
       const deltaX = e.clientX - this.lastPanX;
       const deltaY = e.clientY - this.lastPanY;
 
       if (this.onCameraPan) {
-        this.onCameraPan(-deltaX * 0.03, deltaY * 0.03);
+        // Pass raw pixel deltas; renderer converts to world units.
+        this.onCameraPan(deltaX, deltaY);
       }
 
       this.lastPanX = e.clientX;
       this.lastPanY = e.clientY;
-      return; // Don't process normal mouse move when panning
+      return; // Don't process normal mouse move when panning - no highlighting during pan
     }
 
     this.interaction?.onMouseMove?.(pos);
 
-    // Check if hovering over a valid tile
+    // Check if hovering over a valid tile (only when not panning)
     if (pos.tileX >= 0 && pos.tileX < this.mapSize.width &&
         pos.tileY >= 0 && pos.tileY < this.mapSize.height) {
       this.interaction?.onHover?.(pos);
@@ -171,6 +182,11 @@ export class MouseHandler {
       return;
     }
 
+    // Don't process tool interactions during panning
+    if (this.isPanning) {
+      return;
+    }
+
     if (this.lastMousePos) {
       this.interaction?.onMouseDown?.(this.lastMousePos, e.button);
     }
@@ -179,18 +195,31 @@ export class MouseHandler {
   private onMouseUp(e: MouseEvent) {
     if (this.isPanning) {
       this.isPanning = false;
+      this.wasPanning = true;
       this.container.style.cursor = 'default';
       e.preventDefault();
+
+      // Clear the wasPanning flag after a short delay to prevent immediate clicks
+      setTimeout(() => {
+        this.wasPanning = false;
+      }, 50);
       return;
     }
 
     this.isMouseDown = false;
+
+    // Don't process tool interactions if we were panning
     if (this.lastMousePos) {
       this.interaction?.onMouseUp?.(this.lastMousePos, e.button);
     }
   }
 
   private onMouseClick(e: MouseEvent) {
+    // Don't process click events if we were panning or just finished panning
+    if (this.isPanning || this.wasPanning) {
+      return;
+    }
+
     const pos = this.screenToWorld(e.clientX, e.clientY);
     this.interaction?.onMouseClick?.(pos, e.button);
   }
@@ -208,66 +237,125 @@ export class MouseHandler {
 export function createToolMouseHandler(
   activeTool: ToolType,
   onAction: (action: any) => void,
-  onHover?: (pos: MousePosition | null, tile?: any) => void,
+  onHover?: (pos: MousePosition | null, tile?: any, dragRect?: { x: number; y: number; w: number; h: number }, dragLine?: { x0: number; y0: number; x1: number; y1: number }, dragBlocked?: boolean) => void,
   mapSize: { width: number; height: number } = { width: 16, height: 16 }
 ): MouseInteraction {
   let isDragging = false;
   let dragStart: MousePosition | undefined;
+  let lastDragRect: { x: number; y: number; w: number; h: number } | null = null;
+  let lastDragLine: { x0: number; y0: number; x1: number; y1: number } | null = null;
 
+  const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
+  function computeRect(start: MousePosition, current: MousePosition) {
+    const sx = clamp(start.tileX, 0, mapSize.width - 1);
+    const sy = clamp(start.tileY, 0, mapSize.height - 1);
+    const cx = clamp(current.tileX, 0, mapSize.width - 1);
+    const cy = clamp(current.tileY, 0, mapSize.height - 1);
+    const minX = Math.min(sx, cx);
+    const maxX = Math.max(sx, cx);
+    const minY = Math.min(sy, cy);
+    const maxY = Math.max(sy, cy);
+    return { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 };
+  }
+
+  function computeLine(start: MousePosition, current: MousePosition) {
+    const x0 = clamp(start.tileX, 0, mapSize.width - 1);
+    const y0 = clamp(start.tileY, 0, mapSize.height - 1);
+    let x1 = clamp(current.tileX, 0, mapSize.width - 1);
+    let y1 = clamp(current.tileY, 0, mapSize.height - 1);
+    // Lock to straight line: horizontal or vertical, whichever is longer
+    const dx = Math.abs(x1 - x0);
+    const dy = Math.abs(y1 - y0);
+    if (dx >= dy) {
+      y1 = y0; // horizontal
+    } else {
+      x1 = x0; // vertical
+    }
+    return { x0, y0, x1, y1 };
+  }
+
+  let dragBlocked: boolean = false;
   return {
     onMouseDown: (pos, button) => {
       if (button === 0) { // Left click
         isDragging = true;
         dragStart = pos;
-
-        // Immediate action for some tools
+        lastDragRect = null;
+        lastDragLine = null;
+        dragBlocked = false;
         if (activeTool === 'road' || activeTool === 'bulldoze') {
           handleToolAction(activeTool, pos, onAction, mapSize);
         }
       }
     },
-
     onMouseMove: (pos) => {
       if (isDragging && dragStart) {
-        // Continue action for drawing tools
-        if (activeTool === 'road' || activeTool === 'bulldoze') {
+        if (activeTool === 'road') {
+          lastDragLine = computeLine(dragStart, pos);
+          // dragBlocked will be set by main.ts hover callback
+          onHover?.(pos, { x: pos.tileX, y: pos.tileY }, undefined, lastDragLine, dragBlocked);
+          return;
+        } else if (activeTool === 'bulldoze') {
           handleToolAction(activeTool, pos, onAction, mapSize);
+        } else if (activeTool.startsWith('zone_')) {
+          lastDragRect = computeRect(dragStart, pos);
+          onHover?.(pos, { x: pos.tileX, y: pos.tileY }, lastDragRect);
+          return;
         }
       }
+      onHover?.(pos, pos ? { x: pos.tileX, y: pos.tileY } : null, lastDragRect || undefined, lastDragLine || undefined, dragBlocked);
     },
-
     onMouseUp: (pos, button) => {
       if (button === 0 && isDragging && dragStart) {
         isDragging = false;
-
-        // Handle area tools (zoning)
-        if (activeTool.startsWith('zone_')) {
-          handleZoneAction(activeTool, dragStart, pos, onAction, mapSize);
+        if (activeTool === 'road') {
+          if (lastDragLine && !dragBlocked) {
+            handleRoadLineAction(lastDragLine, onAction);
+          }
+          lastDragLine = null;
+          dragBlocked = false;
+          onHover?.(pos, { x: pos.tileX, y: pos.tileY }, undefined, undefined, false);
+        } else if (activeTool.startsWith('zone_')) {
+          if (lastDragRect) {
+            handleZoneActionRect(activeTool, lastDragRect, onAction);
+          } else {
+            handleZoneAction(activeTool, dragStart, pos, onAction, mapSize);
+          }
+          lastDragRect = null;
+          onHover?.(pos, { x: pos.tileX, y: pos.tileY }, undefined);
         }
-
         dragStart = undefined;
       }
     },
-
     onMouseClick: (pos, button) => {
-      if (button === 0) { // Left click
-        // Handle single-click tools
-        if (activeTool === 'inspect') {
-          // Clamp coordinates for inspect action
-          const clampedX = Math.max(0, Math.min(mapSize.width - 1, pos.tileX));
-          const clampedY = Math.max(0, Math.min(mapSize.height - 1, pos.tileY));
-          onAction({ type: 'INSPECT_TILE', x: clampedX, y: clampedY });
-        }
+      if (button === 0 && activeTool === 'inspect') {
+        const clampedX = clamp(pos.tileX, 0, mapSize.width - 1);
+        const clampedY = clamp(pos.tileY, 0, mapSize.height - 1);
+        onAction({ type: 'INSPECT_TILE', x: clampedX, y: clampedY });
       }
     },
-
-    onHover: (pos) => {
-      if (onHover) {
-        onHover(pos, pos ? { x: pos.tileX, y: pos.tileY } : null);
+    onHover: (pos, _tile, _rect, _line, blocked) => {
+      dragBlocked = !!blocked;
+      onHover?.(pos, pos ? { x: pos.tileX, y: pos.tileY } : null, lastDragRect || undefined, lastDragLine || undefined, dragBlocked);
+    },
+    onCancel: () => {
+      if (isDragging && activeTool === 'road') {
+        isDragging = false;
+        dragStart = undefined;
+        lastDragLine = null;
+        dragBlocked = false;
+        onHover?.(null, null, undefined, undefined, false);
+      }
+      if (isDragging && activeTool.startsWith('zone_')) {
+        isDragging = false;
+        dragStart = undefined;
+        lastDragRect = null;
+        onHover?.(null, null, undefined);
       }
     }
   };
-}function handleToolAction(
+}
+function handleToolAction(
   tool: ToolType,
   pos: MousePosition,
   onAction: (action: any) => void,
@@ -321,4 +409,44 @@ function handleZoneAction(
     rect: { x: minX, y: minY, w, h },
     zone
   });
+}
+
+function handleZoneActionRect(
+  tool: ToolType,
+  rect: { x: number; y: number; w: number; h: number },
+  onAction: (action: any) => void
+) {
+  let zone: 'R' | 'C' | 'I';
+  switch (tool) {
+    case 'zone_residential': zone = 'R'; break;
+    case 'zone_commercial': zone = 'C'; break;
+    case 'zone_industrial': zone = 'I'; break;
+    default: return;
+  }
+  onAction({ type: 'ZONE_RECT', rect, zone });
+}
+
+// Helper: Bresenham's line algorithm for tile coordinates
+function getLineTiles(x0: number, y0: number, x1: number, y1: number): Array<{x:number,y:number}> {
+  const tiles = [];
+  let dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
+  let sx = x0 < x1 ? 1 : -1;
+  let sy = y0 < y1 ? 1 : -1;
+  let err = dx - dy;
+  let x = x0, y = y0;
+  while (true) {
+    tiles.push({x, y});
+    if (x === x1 && y === y1) break;
+    let e2 = 2 * err;
+    if (e2 > -dy) { err -= dy; x += sx; }
+    if (e2 < dx) { err += dx; y += sy; }
+  }
+  return tiles;
+}
+
+function handleRoadLineAction(line: { x0: number; y0: number; x1: number; y1: number }, onAction: (action: any) => void) {
+  const tiles = getLineTiles(line.x0, line.y0, line.x1, line.y1);
+  for (const t of tiles) {
+    onAction({ type: 'PLACE_ROAD', x: t.x, y: t.y });
+  }
 }
