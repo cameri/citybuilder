@@ -12,7 +12,9 @@ export class OrthoRenderer {
   container: HTMLElement;
   needsResize = true;
   gridGroup = new THREE.Group();
+  highlightGroup = new THREE.Group();
   initializedView = false;
+  hoveredTile: { x: number; y: number } | null = null;
 
   constructor(container: HTMLElement, opts: OrthoRendererOptions = {}) {
     this.container = container;
@@ -33,12 +35,42 @@ export class OrthoRenderer {
     dir.position.set(5,10,7);
     this.scene.add(dir);
     this.scene.add(this.gridGroup);
+    this.scene.add(this.highlightGroup);
 
     window.addEventListener('resize', () => this.onResize());
   }
 
   onResize() {
     this.needsResize = true;
+  }
+
+  setHoveredTile(x: number | null, y: number | null) {
+    if (x === null || y === null) {
+      this.hoveredTile = null;
+    } else {
+      this.hoveredTile = { x, y };
+    }
+    this.updateHighlight();
+  }
+
+  private updateHighlight() {
+    this.highlightGroup.clear();
+
+    if (this.hoveredTile) {
+      const highlightGeom = new THREE.BoxGeometry(this.tileSize * 1.1, 0.3, this.tileSize * 1.1);
+      const highlightMat = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0.3
+      });
+      const highlight = new THREE.Mesh(highlightGeom, highlightMat);
+      highlight.position.set(
+        this.hoveredTile.x * this.tileSize,
+        0.15,
+        this.hoveredTile.y * this.tileSize
+      );
+      this.highlightGroup.add(highlight);
+    }
   }
 
   updateGrid(map: any[][]) {

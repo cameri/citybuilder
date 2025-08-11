@@ -13,6 +13,7 @@ export interface MouseInteraction {
   onMouseDown?: (pos: MousePosition, button: number) => void;
   onMouseUp?: (pos: MousePosition, button: number) => void;
   onMouseClick?: (pos: MousePosition, button: number) => void;
+  onHover?: (pos: MousePosition | null) => void; // null when not hovering over valid tile
 }
 
 export class MouseHandler {
@@ -82,6 +83,14 @@ export class MouseHandler {
     const pos = this.screenToWorld(e.clientX, e.clientY);
     this.lastMousePos = pos;
     this.interaction?.onMouseMove?.(pos);
+
+    // Check if hovering over a valid tile
+    if (pos.tileX >= 0 && pos.tileX < this.mapSize.width &&
+        pos.tileY >= 0 && pos.tileY < this.mapSize.height) {
+      this.interaction?.onHover?.(pos);
+    } else {
+      this.interaction?.onHover?.(null);
+    }
   }
 
   private onMouseDown(e: MouseEvent) {
@@ -115,7 +124,8 @@ export class MouseHandler {
 // Tool-specific mouse behaviors
 export function createToolMouseHandler(
   activeTool: ToolType,
-  onAction: (action: any) => void
+  onAction: (action: any) => void,
+  onHover?: (pos: MousePosition | null, tile?: any) => void
 ): MouseInteraction {
   let isDragging = false;
   let dragStart: MousePosition | undefined;
@@ -162,11 +172,15 @@ export function createToolMouseHandler(
           onAction({ type: 'INSPECT_TILE', x: pos.tileX, y: pos.tileY });
         }
       }
+    },
+
+    onHover: (pos) => {
+      if (onHover) {
+        onHover(pos, pos ? { x: pos.tileX, y: pos.tileY } : null);
+      }
     }
   };
-}
-
-function handleToolAction(tool: ToolType, pos: MousePosition, onAction: (action: any) => void) {
+}function handleToolAction(tool: ToolType, pos: MousePosition, onAction: (action: any) => void) {
   switch (tool) {
     case 'road':
       onAction({ type: 'PLACE_ROAD', x: pos.tileX, y: pos.tileY });

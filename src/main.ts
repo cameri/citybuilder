@@ -9,8 +9,10 @@ import { manualLoad, manualSave, persistenceSystem } from './systems/persistence
 import { populationSystem } from './systems/populationSystem';
 import { zoningSystem } from './systems/zoningSystem';
 // New imports for Phase 1 completion
+import { Minimap } from './ui/minimap';
 import { MouseHandler, createToolMouseHandler } from './ui/mouseHandler';
 import { ToolsPalette } from './ui/toolsPalette';
+import { ZoneInspector } from './ui/zoneInspector';
 import { initializeRNG } from './utils/seededRng';
 
 // HMR world preservation
@@ -43,17 +45,17 @@ if (!world._demoSeeded) {
     enqueueAction(world, { type: 'PLACE_ROAD', x: 8, y: i }); // Vertical main road
     enqueueAction(world, { type: 'PLACE_ROAD', x: i, y: 8 }); // Horizontal main road
   }
-  
+
   // Residential district (northwest quadrant)
   enqueueAction(world, { type: 'ZONE_RECT', rect: { x: 2, y: 2, w: 4, h: 4 }, zone: 'R' });
   enqueueAction(world, { type: 'ZONE_RECT', rect: { x: 10, y: 2, w: 4, h: 4 }, zone: 'R' });
-  
+
   // Commercial district (city center - around main intersection)
   enqueueAction(world, { type: 'ZONE_RECT', rect: { x: 6, y: 6, w: 4, h: 4 }, zone: 'C' });
-  
+
   // Industrial district (southeast quadrant)
   enqueueAction(world, { type: 'ZONE_RECT', rect: { x: 11, y: 11, w: 4, h: 4 }, zone: 'I' });
-  
+
   // Additional roads for access
   for (let i = 2; i < 7; i++) {
     enqueueAction(world, { type: 'PLACE_ROAD', x: i, y: 5 }); // Residential access road
@@ -63,7 +65,7 @@ if (!world._demoSeeded) {
     enqueueAction(world, { type: 'PLACE_ROAD', x: i, y: 10 }); // Industrial access road
     enqueueAction(world, { type: 'PLACE_ROAD', x: 10, y: i }); // Industrial access road
   }
-  
+
   world._demoSeeded = true;
 }
 
@@ -116,6 +118,10 @@ const toolsPaletteContainer = document.createElement('div');
 document.body.appendChild(toolsPaletteContainer);
 const toolsPalette = new ToolsPalette(toolsPaletteContainer);
 
+// Zone inspector and minimap
+const zoneInspector = new ZoneInspector();
+const minimap = new Minimap({ width: 16, height: 16 });
+
 // Mouse handler for tool interaction
 const mouseHandler = new MouseHandler(rendererContainer, { width: 16, height: 16 });
 
@@ -123,20 +129,43 @@ const mouseHandler = new MouseHandler(rendererContainer, { width: 16, height: 16
 let currentTool = toolsPalette.getActiveTool();
 toolsPalette.setOnToolChange((tool) => {
   currentTool = tool;
-  mouseHandler.setInteraction(createToolMouseHandler(tool, (action) => {
-    enqueueAction(world, action);
-    // Force immediate processing for responsive UI
-    (world as any).timeAccumulator += (world as any).fixedDelta;
-    updateWorld(world, 0);
-  }));
+  mouseHandler.setInteraction(createToolMouseHandler(tool,
+    (action) => {
+      enqueueAction(world, action);
+      // Force immediate processing for responsive UI
+      (world as any).timeAccumulator += (world as any).fixedDelta;
+      updateWorld(world, 0);
+    },
+    (pos, tile) => {
+      // Handle hover for zone inspection and highlighting
+      if (pos && tile) {
+        ortho.setHoveredTile(tile.x, tile.y);
+        zoneInspector.showTile(tile, world.map);
+      } else {
+        ortho.setHoveredTile(null, null);
+        zoneInspector.hideTile();
+      }
+    }
+  ));
 });
 
 // Initialize with default tool
-mouseHandler.setInteraction(createToolMouseHandler(currentTool, (action) => {
-  enqueueAction(world, action);
-  (world as any).timeAccumulator += (world as any).fixedDelta;
-  updateWorld(world, 0);
-}));
+mouseHandler.setInteraction(createToolMouseHandler(currentTool,
+  (action) => {
+    enqueueAction(world, action);
+    (world as any).timeAccumulator += (world as any).fixedDelta;
+    updateWorld(world, 0);
+  },
+  (pos, tile) => {
+    if (pos && tile) {
+      ortho.setHoveredTile(tile.x, tile.y);
+      zoneInspector.showTile(tile, world.map);
+    } else {
+      ortho.setHoveredTile(null, null);
+      zoneInspector.hideTile();
+    }
+  }
+));
 // FPS counter setup
 let fpsLast = performance.now();
 let fpsFrames = 0;
@@ -175,6 +204,7 @@ function bindHud() {
 bindHud();
 function render3D() {
   ortho.frame(world.map);
+  minimap.updateMap(world.map);
   fpsFrames++;
   const now = performance.now();
   const dt = now - fpsLast;
@@ -278,7 +308,7 @@ function ensureDebugUI() {
     };
   }
 }
-ensureDebugUI();
+// ensureDebugUI(); // Hidden by default - uncomment to show debug panel
 
 function refreshDebug() {
   const map: any[][] = (world as any).map;

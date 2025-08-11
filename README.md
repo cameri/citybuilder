@@ -206,7 +206,7 @@ During development, the game supports hot-reloading of code and assets without l
 
 - **Phase 1:** Core simulation mechanics, basic UI, and essential systems (zoning, economy, traffic).
 - **Phase 2:** Advanced features like disasters, public services, and detailed citizen behavior.
-- **Phase 3:** Modding support, multiplayer modes, and scenario editor.
+- **Phase 3:** Modding support, and scenario editor.
 - **Phase 4:** Performance optimizations, AI enhancements, and mobile support.
 
 ## Non-Goals (Early Stage)
