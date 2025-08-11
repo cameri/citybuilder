@@ -1,17 +1,29 @@
 import './style.css';
+import { OrthoRenderer } from './render/orthoRenderer';
 // ECS scaffold imports
 import type { System } from './ecs/system';
 import { addSystem, createWorld, enqueueAction, updateWorld } from './ecs/world';
 import { developmentSystem } from './systems/developmentSystem';
 import { zoningSystem } from './systems/zoningSystem';
 
-const world = createWorld();
+// HMR world preservation
+interface PersistedState { world: any }
+const hotData: any = (import.meta as any).hot?.data || {};
+let world: any;
+if ((import.meta as any).hot && hotData.world) {
+  world = hotData.world;
+} else {
+  world = createWorld();
+}
 addSystem(world, zoningSystem);
 addSystem(world, developmentSystem);
 
 // Demo: enqueue a couple of zone actions
-enqueueAction(world, { type: 'SET_ZONE', x: 2, y: 2, zone: 'R' });
-enqueueAction(world, { type: 'SET_ZONE', x: 3, y: 2, zone: 'R' });
+if (!world._demoSeeded) {
+  enqueueAction(world, { type: 'SET_ZONE', x: 2, y: 2, zone: 'R' });
+  enqueueAction(world, { type: 'SET_ZONE', x: 3, y: 2, zone: 'R' });
+  world._demoSeeded = true;
+}
 
 // Example no-op system to demonstrate ticking
 const logSystem: System = {
@@ -61,31 +73,11 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
     <div id="dbgInspect" style="margin-top:6px;white-space:pre;overflow:auto;max-height:160px;"></div>
   </div>`
 
-// Grid rendering
-const canvas = document.getElementById('grid') as HTMLCanvasElement;
-const ctx2d = canvas.getContext('2d')!;
-const TILE_SIZE = 32; // pixel size
-function renderGrid() {
-  const map: any[][] = (world as any).map;
-  ctx2d.clearRect(0,0,canvas.width,canvas.height);
-  for (const row of map) {
-    for (const tile of row) {
-      const { x, y, zone, developed, progress } = tile;
-      let fill = '#222';
-      if (zone === 'R') fill = developed ? '#4caf50' : '#2e7d32';
-      if (zone === 'C') fill = developed ? '#2196f3' : '#1565c0';
-      if (zone === 'I') fill = developed ? '#ffc107' : '#b28704';
-      ctx2d.fillStyle = fill;
-      ctx2d.fillRect(x * (TILE_SIZE/2), y * (TILE_SIZE/2), TILE_SIZE/2-1, TILE_SIZE/2-1);
-      if (zone && !developed) {
-        ctx2d.fillStyle = 'rgba(255,255,255,0.3)';
-        ctx2d.fillRect(x * (TILE_SIZE/2), y * (TILE_SIZE/2) + (TILE_SIZE/2-1)*(1-(progress||0)), TILE_SIZE/2-1, (TILE_SIZE/2-1)*(progress||0));
-      }
-    }
-  }
-  requestAnimationFrame(renderGrid);
-}
-renderGrid();
+// Three.js orthographic renderer
+const rendererContainer = document.getElementById('grid')!.parentElement!;
+const ortho = new OrthoRenderer(rendererContainer, { tileSize: 1 });
+function render3D() { ortho.frame(world.map); requestAnimationFrame(render3D); }
+render3D();
 
 // Debug UI wiring
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -116,3 +108,10 @@ function refreshDebug() {
   requestAnimationFrame(refreshDebug);
 }
 refreshDebug();
+
+// HMR disposal: save world
+if ((import.meta as any).hot) {
+  (import.meta as any).hot.dispose((data: PersistedState) => {
+    data.world = world;
+  });
+}
