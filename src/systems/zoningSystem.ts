@@ -1,6 +1,6 @@
-import type { SystemContext } from '../ecs/types';
 import type { System } from '../ecs/system';
 import { createSystem } from '../ecs/system';
+import type { SystemContext } from '../ecs/types';
 
 // Placeholder zoning system: in future it will process an action queue.
 export const zoningSystem: System = createSystem('zoning', 10, (ctx: SystemContext) => {
@@ -10,7 +10,7 @@ export const zoningSystem: System = createSystem('zoning', 10, (ctx: SystemConte
   for (const row of map) {
     for (const tile of row) {
       if (tile.zone && !tile.developed) {
-        tile.developed = true; // instant develop placeholder
+  tile.developed = true; // instant develop placeholder
       }
     }
   }

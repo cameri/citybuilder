@@ -1,14 +1,14 @@
-import { setupCounter } from './counter.ts'
-import './style.css'
-import typescriptLogo from './typescript.svg'
-import viteLogo from '/vite.svg'
+import { setupCounter } from './counter.ts';
+import './style.css';
+import typescriptLogo from './typescript.svg';
+import viteLogo from '/vite.svg';
 // ECS scaffold imports
-import type { System } from './ecs/system'
-import { addSystem, createWorld, updateWorld } from './ecs/world'
-import { zoningSystem } from './systems/zoningSystem'
+import type { System } from './ecs/system';
+import { addSystem, createWorld, updateWorld } from './ecs/world';
+import { zoningSystem } from './systems/zoningSystem';
 
-const world = createWorld()
-addSystem(world, zoningSystem)
+const world = createWorld();
+addSystem(world, zoningSystem);
 
 // Demo: zone a few tiles residential to see development flag update later
 ;(world as any).map[2][2].zone = 'R'
@@ -24,14 +24,14 @@ const logSystem: System = {
 }
 addSystem(world, logSystem)
 
-let last = performance.now()
+let last = performance.now();
 function frame(now: number) {
-  const deltaSec = (now - last) / 1000
-  last = now
-  updateWorld(world, deltaSec)
-  requestAnimationFrame(frame)
+  const deltaSec = (now - last) / 1000;
+  last = now;
+  updateWorld(world, deltaSec);
+  requestAnimationFrame(frame);
 }
-requestAnimationFrame(frame)
+requestAnimationFrame(frame);
 
 // existing DOM bootstrap
 
