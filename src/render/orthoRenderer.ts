@@ -545,11 +545,33 @@ export class OrthoRenderer {
           const bp = BLUEPRINTS[tile.building];
           if (bp && bp.color) {
             const buildingHeight = Math.max(0.5, bp.size.w * bp.size.h * 0.3); // Height scales with size
-            const buildingGeom = new THREE.BoxGeometry(
-              bp.size.w * this.tileSize * 0.9,
-              buildingHeight,
-              bp.size.h * this.tileSize * 0.9
-            );
+
+            let buildingGeom: THREE.BufferGeometry;
+
+            // Check if this is a power station - render as dome
+            if (tile.building === 'infra.powerstation' || tile.building === 'svc.power.small') {
+              // Create dome geometry for power stations
+              const radius = Math.min(bp.size.w, bp.size.h) * this.tileSize * 0.4;
+              const heightScale = 0.8; // Make dome slightly flattened
+              buildingGeom = new THREE.SphereGeometry(
+                radius,
+                16, // widthSegments
+                8,  // heightSegments
+                0,  // phiStart
+                Math.PI * 2, // phiLength (full circle)
+                0,  // thetaStart
+                Math.PI * 0.5 // thetaLength (half sphere for dome)
+              );
+              buildingGeom.scale(1, heightScale, 1); // Flatten the dome
+            } else {
+              // Default box geometry for other buildings
+              buildingGeom = new THREE.BoxGeometry(
+                bp.size.w * this.tileSize * 0.9,
+                buildingHeight,
+                bp.size.h * this.tileSize * 0.9
+              );
+            }
+
             const buildingMat = new THREE.MeshStandardMaterial({
               color: bp.color,
               roughness: 0.8,
@@ -560,11 +582,24 @@ export class OrthoRenderer {
             // Position at the center of the building footprint
             const centerX = tile.x + (bp.size.w - 1) / 2;
             const centerY = tile.y + (bp.size.h - 1) / 2;
-            building.position.set(
-              centerX * this.tileSize,
-              buildingHeight / 2 + 0.25, // Slightly above tile level
-              centerY * this.tileSize
-            );
+
+            if (tile.building === 'infra.powerstation' || tile.building === 'svc.power.small') {
+              // Position dome on ground level
+              const radius = Math.min(bp.size.w, bp.size.h) * this.tileSize * 0.4;
+              const heightScale = 0.8;
+              building.position.set(
+                centerX * this.tileSize,
+                radius * heightScale + 0.25, // Position dome base slightly above tile level
+                centerY * this.tileSize
+              );
+            } else {
+              building.position.set(
+                centerX * this.tileSize,
+                buildingHeight / 2 + 0.25, // Slightly above tile level
+                centerY * this.tileSize
+              );
+            }
+
             building.userData.building = tile.building;
             this.infraGroup.add(building);
           }
