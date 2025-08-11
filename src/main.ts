@@ -1,7 +1,4 @@
-import { setupCounter } from './counter.ts';
 import './style.css';
-import typescriptLogo from './typescript.svg';
-import viteLogo from '/vite.svg';
 // ECS scaffold imports
 import type { System } from './ecs/system';
 import { addSystem, createWorld, enqueueAction, updateWorld } from './ecs/world';
@@ -35,24 +32,9 @@ function frame(now: number) {
 }
 requestAnimationFrame(frame);
 
-// existing DOM bootstrap
-
+// Game DOM bootstrap
 document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
-  <div>
-    <a href="https://vite.dev" target="_blank">
-      <img src="${viteLogo}" class="logo" alt="Vite logo" />
-    </a>
-    <a href="https://www.typescriptlang.org/" target="_blank">
-      <img src="${typescriptLogo}" class="logo vanilla" alt="TypeScript logo" />
-    </a>
-    <h1>Vite + TypeScript</h1>
-    <div class="card">
-      <button id="counter" type="button"></button>
-    </div>
-    <p class="read-the-docs">
-      Click on the Vite and TypeScript logos to learn more
-    </p>
-  </div>
+  <canvas id="grid" width="512" height="512" style="border:1px solid #333;background:#111;image-rendering:pixelated"></canvas>
   <div id="debug" style="position:fixed;top:8px;right:8px;background:#222;padding:8px;font:12px/1.2 monospace;color:#fff;max-width:260px;border:1px solid #444;border-radius:4px;">
     <strong>Debug Actions</strong><br/>
     <label>Zone Type:
@@ -77,10 +59,33 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
     </label>
     <button id="dbgSetSpeed" type="button">Set Speed</button>
     <div id="dbgInspect" style="margin-top:6px;white-space:pre;overflow:auto;max-height:160px;"></div>
-  </div>
-`
+  </div>`
 
-setupCounter(document.querySelector<HTMLButtonElement>('#counter')!)
+// Grid rendering
+const canvas = document.getElementById('grid') as HTMLCanvasElement;
+const ctx2d = canvas.getContext('2d')!;
+const TILE_SIZE = 32; // pixel size
+function renderGrid() {
+  const map: any[][] = (world as any).map;
+  ctx2d.clearRect(0,0,canvas.width,canvas.height);
+  for (const row of map) {
+    for (const tile of row) {
+      const { x, y, zone, developed, progress } = tile;
+      let fill = '#222';
+      if (zone === 'R') fill = developed ? '#4caf50' : '#2e7d32';
+      if (zone === 'C') fill = developed ? '#2196f3' : '#1565c0';
+      if (zone === 'I') fill = developed ? '#ffc107' : '#b28704';
+      ctx2d.fillStyle = fill;
+      ctx2d.fillRect(x * (TILE_SIZE/2), y * (TILE_SIZE/2), TILE_SIZE/2-1, TILE_SIZE/2-1);
+      if (zone && !developed) {
+        ctx2d.fillStyle = 'rgba(255,255,255,0.3)';
+        ctx2d.fillRect(x * (TILE_SIZE/2), y * (TILE_SIZE/2) + (TILE_SIZE/2-1)*(1-(progress||0)), TILE_SIZE/2-1, (TILE_SIZE/2-1)*(progress||0));
+      }
+    }
+  }
+  requestAnimationFrame(renderGrid);
+}
+renderGrid();
 
 // Debug UI wiring
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
