@@ -68,16 +68,17 @@ export class ToolsPalette {
   private container: HTMLElement;
   private activeTool: ToolType = 'inspect';
   private onToolChange?: (tool: ToolType) => void;
+  private currentHoverMenu: HTMLElement | null = null;
+  private pinnedMenuCategory: string | null = null;
 
-  private categories: Array<{ key: string; name: string }> = [
-    { key: 'info', name: 'Info' },
-    { key: 'zoning', name: 'Zoning' },
-    { key: 'infrastructure', name: 'Infrastructure' },
-    { key: 'service', name: 'Services' },
-    { key: 'education', name: 'Education' },
-    { key: 'health', name: 'Health' },
-    { key: 'safety', name: 'Safety' },
-    { key: 'demolish', name: 'Demolish' }
+  private categories: Array<{ key: string; name: string; icon: string }> = [
+    { key: 'info', name: 'Info', icon: '🔍' },
+    { key: 'zoning', name: 'Zoning', icon: '🏘️' },
+    { key: 'infrastructure', name: 'Infrastructure', icon: '🏗️' },
+    { key: 'education', name: 'Education', icon: '🎓' },
+    { key: 'health', name: 'Health', icon: '🏥' },
+    { key: 'safety', name: 'Safety', icon: '🚒' },
+    { key: 'demolish', name: 'Demolish', icon: '🚜' }
   ];
 
   constructor(container: HTMLElement) {
@@ -115,38 +116,112 @@ export class ToolsPalette {
         border: 1px solid #444;
         border-radius: 4px;
         padding: 8px;
-        width: 80px;
+        width: 60px;
         box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-        max-height: 90vh;
-        overflow-y: auto;
+        z-index: 1000;
       ">
         <div style="font: 11px/1.2 monospace; color: #ccc; text-align: center; margin-bottom: 6px;">Tools</div>
-        ${this.categories.map(cat => this.renderCategory(cat)).join('')}
+        ${this.categories.map(cat => this.renderCategoryButton(cat)).join('')}
       </div>
     `;
 
-    // Bind click events
-    Object.keys(TOOLS).forEach(toolId => {
-      const btn = this.container.querySelector(`[data-tool="${toolId}"]`) as HTMLButtonElement;
-      if (btn) {
-        btn.addEventListener('click', () => this.setActiveTool(toolId as ToolType));
+    // Bind category click events for toggling
+    this.categories.forEach(cat => {
+      const categoryBtn = this.container.querySelector(`[data-category="${cat.key}"]`) as HTMLElement;
+      if (categoryBtn) {
+        categoryBtn.addEventListener('click', () => this.toggleCategoryMenu(cat.key, categoryBtn));
       }
     });
 
     this.updateActiveState();
   }
 
-  private renderCategory(cat: { key: string; name: string }): string {
-    const tools = Object.values(TOOLS).filter(t => t.category === cat.key);
-    if (tools.length === 0) return '';
+  private renderCategoryButton(cat: { key: string; name: string; icon: string }): string {
     return `
-      <div style="margin-bottom: 8px;">
-        <div style="font-size: 10px; color: #aaa; margin-bottom: 2px; text-align: left;">${cat.name}</div>
-        <div style="display: flex; flex-wrap: wrap; gap: 2px;">
-          ${tools.map(tool => this.renderToolButton(tool)).join('')}
-        </div>
-      </div>
+      <button
+        data-category="${cat.key}"
+        title="${cat.name}"
+        style="
+          display: block;
+          width: 44px;
+          height: 44px;
+          margin: 4px 0;
+          background: #333;
+          border: 2px solid #555;
+          color: #fff;
+          font-size: 20px;
+          cursor: pointer;
+          border-radius: 4px;
+          transition: all 0.2s;
+          position: relative;
+        "
+      >
+        <div style="line-height: 1;">${cat.icon}</div>
+      </button>
     `;
+  }
+
+  private toggleCategoryMenu(categoryKey: string, categoryBtn: HTMLElement) {
+    // If this category menu is already pinned, hide it
+    if (this.pinnedMenuCategory === categoryKey) {
+      this.hideCategoryMenu();
+      this.pinnedMenuCategory = null;
+      return;
+    }
+
+    // Hide any existing menu and show the new one
+    this.hideCategoryMenu();
+    this.showCategoryMenu(categoryKey, categoryBtn);
+    this.pinnedMenuCategory = categoryKey;
+  }
+
+  private showCategoryMenu(categoryKey: string, categoryBtn: HTMLElement) {
+    this.hideCategoryMenu();
+
+    const tools = Object.values(TOOLS).filter(t => t.category === categoryKey);
+    if (tools.length === 0) return;
+
+    const rect = categoryBtn.getBoundingClientRect();
+    const menu = document.createElement('div');
+    menu.className = 'category-menu';
+    menu.style.cssText = `
+      position: fixed;
+      left: ${rect.right + 8}px;
+      top: ${rect.top}px;
+      background: #222;
+      border: 1px solid #444;
+      border-radius: 4px;
+      padding: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+      z-index: 1001;
+      display: flex;
+      gap: 4px;
+      max-width: 400px;
+      flex-wrap: wrap;
+    `;
+
+    menu.innerHTML = tools.map(tool => this.renderToolButton(tool)).join('');
+
+    // Bind tool click events
+    tools.forEach(tool => {
+      const btn = menu.querySelector(`[data-tool="${tool.id}"]`) as HTMLButtonElement;
+      if (btn) {
+        btn.addEventListener('click', () => {
+          this.setActiveTool(tool.id);
+          // Don't hide the menu when selecting a tool - keep it pinned
+        });
+      }
+    });
+
+    document.body.appendChild(menu);
+    this.currentHoverMenu = menu;
+  }
+
+  private hideCategoryMenu() {
+    if (this.currentHoverMenu) {
+      this.currentHoverMenu.remove();
+      this.currentHoverMenu = null;
+    }
   }
 
   private renderToolButton(tool: Tool): string {
@@ -177,17 +252,44 @@ export class ToolsPalette {
   }
 
   private updateActiveState() {
-    // Remove active state from all buttons
-    this.container.querySelectorAll('[data-tool]').forEach(btn => {
+    // Remove active state from all category buttons
+    this.container.querySelectorAll('[data-category]').forEach(btn => {
       (btn as HTMLElement).style.borderColor = '#555';
       (btn as HTMLElement).style.background = '#333';
     });
 
-    // Add active state to current tool
-    const activeBtn = this.container.querySelector(`[data-tool="${this.activeTool}"]`) as HTMLElement;
-    if (activeBtn) {
-      activeBtn.style.borderColor = '#646cff';
-      activeBtn.style.background = '#444';
+    // Add active state to category of current tool
+    const activeToolCategory = TOOLS[this.activeTool]?.category;
+    if (activeToolCategory) {
+      const activeCategoryBtn = this.container.querySelector(`[data-category="${activeToolCategory}"]`) as HTMLElement;
+      if (activeCategoryBtn) {
+        activeCategoryBtn.style.borderColor = '#646cff';
+        activeCategoryBtn.style.background = '#444';
+      }
+    }
+
+    // Add pinned state to pinned category
+    if (this.pinnedMenuCategory) {
+      const pinnedCategoryBtn = this.container.querySelector(`[data-category="${this.pinnedMenuCategory}"]`) as HTMLElement;
+      if (pinnedCategoryBtn) {
+        pinnedCategoryBtn.style.borderColor = '#ff6464';
+        pinnedCategoryBtn.style.background = '#554';
+      }
+    }
+
+    // Update active state in any open menu
+    const openMenu = document.querySelector('.category-menu');
+    if (openMenu) {
+      openMenu.querySelectorAll('[data-tool]').forEach(btn => {
+        (btn as HTMLElement).style.borderColor = '#555';
+        (btn as HTMLElement).style.background = '#333';
+      });
+
+      const activeToolBtn = openMenu.querySelector(`[data-tool="${this.activeTool}"]`) as HTMLElement;
+      if (activeToolBtn) {
+        activeToolBtn.style.borderColor = '#646cff';
+        activeToolBtn.style.background = '#444';
+      }
     }
   }
 
@@ -195,6 +297,20 @@ export class ToolsPalette {
     window.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
         this.setActiveTool('inspect');
+        this.hideCategoryMenu();
+        this.pinnedMenuCategory = null;
+      }
+    });
+
+    // Close menu when clicking outside
+    window.addEventListener('click', (e) => {
+      const target = e.target as HTMLElement;
+      const clickedOnPalette = target.closest('#tools-palette');
+      const clickedOnMenu = target.closest('.category-menu');
+      
+      if (!clickedOnPalette && !clickedOnMenu) {
+        this.hideCategoryMenu();
+        this.pinnedMenuCategory = null;
       }
     });
   }
