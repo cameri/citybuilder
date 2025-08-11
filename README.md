@@ -99,6 +99,15 @@ SimCity is built using an Entity-Component-System (ECS) architecture:
 
 This architecture promotes separation of concerns, modularity, and scalability, making it easier to maintain and extend the game.
 
+### Rendering Strategy
+
+The game uses an **orthographic camera** in Three.js to achieve an isometric, SimCity‑like visual style. Key aspects include:
+- OrthographicCamera with a fixed isometric tilt for a classic city‑builder perspective.
+- Chunked mesh rendering: the map is divided into chunks that are rebuilt only when changes occur, improving performance.
+- InstancedMesh for repeating elements (trees, windows, vehicles) to minimize draw calls.
+- Lightweight day/night and seasonal tinting without heavy dynamic shadows.
+- All rendering logic is separated from the simulation code for maintainability.
+
 ## Tech Stack
 
 The project leverages modern web technologies including:
@@ -107,6 +116,7 @@ The project leverages modern web technologies including:
 - **Vite:** Fast development build tool and bundler.
 - **Three.js:** For 3D rendering and visualization.
 - **ECS Architecture:** To structure game logic and data efficiently.
+- **bitECS:** ECS implementation for high-performance, data-oriented game logic.
 
 ## Project Structure
 
