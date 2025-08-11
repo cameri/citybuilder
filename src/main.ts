@@ -1,7 +1,33 @@
+import { setupCounter } from './counter.ts'
 import './style.css'
 import typescriptLogo from './typescript.svg'
 import viteLogo from '/vite.svg'
-import { setupCounter } from './counter.ts'
+// ECS scaffold imports
+import type { System } from './ecs/system'
+import { addSystem, createWorld, updateWorld } from './ecs/world'
+
+const world = createWorld()
+
+// Example no-op system to demonstrate ticking
+const logSystem: System = {
+  name: 'log',
+  order: 100,
+  update: ({ tick }) => {
+    if (tick % 60 === 0) console.log(`[world] tick=${tick}`)
+  }
+}
+addSystem(world, logSystem)
+
+let last = performance.now()
+function frame(now: number) {
+  const deltaSec = (now - last) / 1000
+  last = now
+  updateWorld(world, deltaSec)
+  requestAnimationFrame(frame)
+}
+requestAnimationFrame(frame)
+
+// existing DOM bootstrap
 
 document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
   <div>
