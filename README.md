@@ -118,9 +118,23 @@ SimCity is built using an Entity-Component-System (ECS) architecture:
 
 This architecture promotes separation of concerns, modularity, and scalability, making it easier to maintain and extend the game.
 
+## Directions & Coordinates
+
+CityBuilder uses a tile grid with the following coordinate and direction conventions:
+
+- x increases to the east; x decreasing moves west.
+- y increases to the south; y decreasing moves north.
+- In the orthographic view, north points toward the top-right of the screen.
+
+Implications:
+
+- Panning toward north reduces y; panning toward west reduces x.
+- The floating compass in the UI shows world north (y decreasing) and adjusts as you pan/zoom.
+
 ### Rendering Strategy
 
 The game uses an **orthographic camera** in Three.js to achieve an isometric, SimCity‑like visual style. Key aspects include:
+
 - OrthographicCamera with a fixed isometric tilt for a classic city‑builder perspective.
 - Chunked mesh rendering: the map is divided into chunks that are rebuilt only when changes occur, improving performance.
 - InstancedMesh for repeating elements (trees, windows, vehicles) to minimize draw calls.
@@ -180,7 +194,8 @@ Game state is serialized into a JSON-based format capturing:
 
 This format is designed for easy saving, loading, and potential sharing of city states.
 
-**Example save (v1)**
+### Example save (v1)
+
 ```json
 {
   "version": 1,
@@ -190,6 +205,7 @@ This format is designed for easy saving, loading, and potential sharing of city 
   "rulesVersion": "2025-08-11"
 }
 ```
+
 - **Storage key:** `sc4like.save.v1`
 - To reset: open DevTools → Application → Local Storage → delete the key.
 
@@ -198,6 +214,7 @@ This format is designed for easy saving, loading, and potential sharing of city 
 During development, the game supports hot-reloading of code and assets without losing the current simulation state. This accelerates iteration by preserving the city state while applying code changes, minimizing downtime and improving developer productivity.
 
 ### HMR caveats
+
 - Simulation state (world + clock) is serialized on module dispose and restored on accept.
 - Three.js scene/renderer are **recreated** on update and all GPU resources are disposed.
 - If you observe rising GPU memory after multiple edits, please file an issue with steps.

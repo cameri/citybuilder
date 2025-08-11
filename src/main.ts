@@ -15,6 +15,7 @@ import { serviceCoverageSystem } from './systems/serviceCoverageSystem';
 import { trafficAggregationSystem } from './systems/trafficAggregationSystem';
 import { zoningSystem } from './systems/zoningSystem';
 // New imports for Phase 1 completion
+import { Compass } from './ui/compass';
 import { Minimap } from './ui/minimap';
 import { MouseHandler, createToolMouseHandler } from './ui/mouseHandler';
 import { ToolsPalette } from './ui/toolsPalette';
@@ -206,6 +207,7 @@ const toolsPalette = new ToolsPalette(toolsPaletteContainer);
 // Zone inspector and minimap
 const zoneInspector = new ZoneInspector();
 const minimap = new Minimap({ width: 48, height: 48 });
+const compass = new Compass();
 
 // Connect minimap click-to-pan to camera
 minimap.setOnPanToTile((tileX, tileY) => {
@@ -370,6 +372,8 @@ bindHud();
 function render3D() {
   ortho.frame(world.map);
   minimap.updateMap(world.map);
+  // Update compass heading based on current camera
+  compass.updateWithCamera(ortho.camera);
   fpsFrames++;
   const now = performance.now();
   const dt = now - fpsLast;

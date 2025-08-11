@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { BLUEPRINTS } from '../blueprints/index.js';
+import { GLTFCache } from './gltfCache.js';
+import { fileForVariant, urlForFile, type RoadVariant } from './roadModels.js';
 
 export interface OrthoRendererOptions {
   tileSize?: number; // world units per tile
@@ -25,8 +27,11 @@ export class OrthoRenderer {
   buildingGroup = new THREE.Group(); // static buildings and service structures
   groundGroup = new THREE.Group(); // static ground tiles
   boundaryGroup = new THREE.Group(); // map boundary lines
+  roadsGroup = new THREE.Group(); // GLB-rendered road tiles
   private groundBuilt = false;
   private buildingsBuilt = false;
+  private gltfCache: GLTFCache;
+  private lastRoadSignature: string | null = null;
   initializedView = false;
   hoveredTile: { x: number; y: number; } | null = null;
   // Track the currently active tool so highlight visuals can adapt (e.g., bulldoze = red)
@@ -63,13 +68,15 @@ export class OrthoRenderer {
     const dir = new THREE.DirectionalLight(0xffffff, 0.4);
     dir.position.set(5, 10, 7);
     this.scene.add(dir);
-    this.scene.add(this.groundGroup);
+  this.scene.add(this.groundGroup);
     this.scene.add(this.gridGroup);
     this.scene.add(this.highlightGroup);
     this.scene.add(this.selectionGroup);
     this.scene.add(this.infraGroup);
+  this.scene.add(this.roadsGroup);
     this.scene.add(this.buildingGroup);
-    this.scene.add(this.boundaryGroup);
+  this.scene.add(this.boundaryGroup);
+  this.gltfCache = new GLTFCache(this.tileSize, '/textures/');
 
     this.bindPanEvents();
     window.addEventListener('resize', () => this.onResize());
@@ -366,7 +373,7 @@ export class OrthoRenderer {
       this.buildGround(w, h);
     }
     // Simple rebuild each frame for now (small maps); optimize later.
-    this.gridGroup.clear();
+  this.gridGroup.clear();
     this.infraGroup.clear(); // Only clear dynamic infrastructure (poles, pipes, power lines)
 
     // Clear and rebuild buildings only when needed (not every frame)
@@ -374,27 +381,13 @@ export class OrthoRenderer {
       this.buildingGroup.clear();
     }
 
-    const geom = new THREE.BoxGeometry(this.tileSize * 0.95, 0.25, this.tileSize * 0.95);
-    // Base road (asphalt) geometry now fills entire tile to eliminate visible gaps between adjacent road tiles
-    const roadGeom = new THREE.BoxGeometry(this.tileSize * 1.0, 0.04, this.tileSize * 1.0);
-    const roadMat = new THREE.MeshStandardMaterial({ color: 0x555555, roughness: 0.95 });
-    // Sidewalk strip (placed along edges where there is no adjacent road)
-  const sidewalkThickness = 0.05;
-  const sidewalkWidth = this.tileSize * 0.16; // fraction of tile for sidewalk
-    const sidewalkLong = this.tileSize * 1.0;
-    const sidewalkGeomLong = new THREE.BoxGeometry(sidewalkLong, sidewalkThickness, sidewalkWidth);  // horizontal (E-W) oriented by rotation when needed
-    const sidewalkGeomWide = new THREE.BoxGeometry(sidewalkWidth, sidewalkThickness, sidewalkLong); // vertical (N-S)
-    const sidewalkMat = new THREE.MeshStandardMaterial({ color: 0x999999, roughness: 0.9 });
+  const geom = new THREE.BoxGeometry(this.tileSize * 0.95, 0.25, this.tileSize * 0.95);
     // Road marking materials & geometries (simple white paint)
-    const markingMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-    const centerDashLength = this.tileSize * 0.55;
-    const centerDashWidth = this.tileSize * 0.08;
-    const centerDashGeomX = new THREE.BoxGeometry(centerDashLength, 0.02, centerDashWidth); // horizontal dash (E-W)
-    const centerDashGeomZ = new THREE.BoxGeometry(centerDashWidth, 0.02, centerDashLength); // vertical dash (N-S)
+  // Markings disabled when using GLB-based roads; can be reintroduced if needed
     // Crosswalk stripe geometry (short thin strip across approach) created per direction
   // Crosswalk stripe base geometries (we'll clone & scale as needed)
     // Helper to build road tile variants with sidewalks & markings
-    const buildRoadTile = (tile: any, mapRef: any[][]) => {
+  const buildRoadTile = (tile: any, mapRef: any[][]) => {
       const { x, y } = tile;
       const h = mapRef.length; const w = mapRef[0].length;
       const n = y > 0 && mapRef[y - 1][x].road;
@@ -404,62 +397,9 @@ export class OrthoRenderer {
       const connections = (n ? 1 : 0) + (s ? 1 : 0) + (wR ? 1 : 0) + (e ? 1 : 0);
       const group = new THREE.Group();
       group.position.set(x * this.tileSize, 0, y * this.tileSize);
-      // Base asphalt
-      const asphalt = new THREE.Mesh(roadGeom, roadMat);
-      asphalt.position.y = roadGeom.parameters.height / 2; // raise half thickness
-      group.add(asphalt);
-      // Sidewalks (edge strips where no adjacent road)
-      const sidewalkY = roadGeom.parameters.height + sidewalkThickness / 2;
-      if (!n) {
-        const sw = new THREE.Mesh(sidewalkGeomLong, sidewalkMat);
-        sw.position.set(0, sidewalkY, -this.tileSize / 2 + sidewalkWidth / 2);
-        group.add(sw);
-      }
-      if (!s) {
-        const sw = new THREE.Mesh(sidewalkGeomLong, sidewalkMat);
-        sw.position.set(0, sidewalkY, this.tileSize / 2 - sidewalkWidth / 2);
-        group.add(sw);
-      }
-      if (!wR) {
-        const sw = new THREE.Mesh(sidewalkGeomWide, sidewalkMat);
-        sw.position.set(-this.tileSize / 2 + sidewalkWidth / 2, sidewalkY, 0);
-        group.add(sw);
-      }
-      if (!e) {
-        const sw = new THREE.Mesh(sidewalkGeomWide, sidewalkMat);
-        sw.position.set(this.tileSize / 2 - sidewalkWidth / 2, sidewalkY, 0);
-        group.add(sw);
-      }
-      // Curved quarter-circle sidewalk corners where two adjacent edges have sidewalks
-      const cornerRadius = sidewalkWidth;
-      const cornerSegs = 14;
-      const makeCorner = (thetaStart: number) => new THREE.Mesh(new THREE.CylinderGeometry(cornerRadius, cornerRadius, sidewalkThickness, cornerSegs, 1, false, thetaStart, Math.PI / 2), sidewalkMat);
-      // NW corner
-      if (!n && !wR) {
-        const c = makeCorner(Math.PI); // start at +X axis rotated to cover NW quadrant
-        c.position.set(-this.tileSize / 2 + cornerRadius, sidewalkY, -this.tileSize / 2 + cornerRadius);
-        group.add(c);
-      }
-      // NE corner
-      if (!n && !e) {
-        const c = makeCorner(-Math.PI / 2);
-        c.position.set(this.tileSize / 2 - cornerRadius, sidewalkY, -this.tileSize / 2 + cornerRadius);
-        group.add(c);
-      }
-      // SW corner
-      if (!s && !wR) {
-        const c = makeCorner(Math.PI / 2);
-        c.position.set(-this.tileSize / 2 + cornerRadius, sidewalkY, this.tileSize / 2 - cornerRadius);
-        group.add(c);
-      }
-      // SE corner
-      if (!s && !e) {
-        const c = makeCorner(0);
-        c.position.set(this.tileSize / 2 - cornerRadius, sidewalkY, this.tileSize / 2 - cornerRadius);
-        group.add(c);
-      }
-      // Determine variant type affects markings
-      let variant: 'isolated' | 'deadend' | 'straight' | 'curve' | 't' | 'intersection';
+  // Sidewalks removed – Kenney models include appropriate geometry
+      // Determine variant type affects model selection and markings
+      let variant: RoadVariant;
       if (connections === 0) variant = 'isolated';
       else if (connections === 1) variant = 'deadend';
       else if (connections === 4) variant = 'intersection';
@@ -467,52 +407,42 @@ export class OrthoRenderer {
       else { // connections === 2
         if ((n && s) || (wR && e)) variant = 'straight'; else variant = 'curve';
       }
-      const paintHeight = roadGeom.parameters.height + 0.011; // slight above asphalt
-      // Center lines for straight segments
-      if (variant === 'straight') {
-        if (n && s && !wR && !e) {
-          // vertical straight uses dashed segment (per tile dashed look)
-          const dash = new THREE.Mesh(centerDashGeomZ, markingMat);
-          dash.position.y = paintHeight;
-            // Keep centered
-          group.add(dash);
-        } else if (wR && e && !n && !s) {
-          const dash = new THREE.Mesh(centerDashGeomX, markingMat);
-          dash.position.y = paintHeight;
-          group.add(dash);
-        }
-      }
-      // Curves: add two short perpendicular dashes forming an L inside tile center
-      if (variant === 'curve') {
-        // Add one short dash along x and one along z
-        const dashX = new THREE.Mesh(new THREE.BoxGeometry(this.tileSize * 0.35, 0.02, centerDashWidth), markingMat);
-        const dashZ = new THREE.Mesh(new THREE.BoxGeometry(centerDashWidth, 0.02, this.tileSize * 0.35), markingMat);
-        dashX.position.y = paintHeight; dashZ.position.y = paintHeight;
-        group.add(dashX); group.add(dashZ);
-      }
-      // Dead ends: small stop bar near the end edge
-      if (variant === 'deadend') {
-        const barThickness = this.tileSize * 0.5;
-        const barWidth = this.tileSize * 0.12;
-        const barGeom = new THREE.BoxGeometry(barWidth, 0.02, barThickness);
-        const bar = new THREE.Mesh(barGeom, markingMat);
-        bar.position.y = paintHeight;
-        if (n) bar.rotation.y = Math.PI / 2, bar.position.z = -this.tileSize / 2 + barWidth / 2; // open to north, bar south edge
-        if (s) bar.rotation.y = Math.PI / 2, bar.position.z = this.tileSize / 2 - barWidth / 2;
-        if (wR) bar.position.x = -this.tileSize / 2 + barWidth / 2;
-        if (e) bar.position.x = this.tileSize / 2 - barWidth / 2;
-        group.add(bar);
-      }
-  // Crosswalk rendering disabled (previous zebra logic removed). To re-enable, restore addCrosswalk logic here.
-      // Isolated: draw a plus like marking to indicate placeholder
-      if (variant === 'isolated') {
-        const iso1 = new THREE.Mesh(new THREE.BoxGeometry(this.tileSize * 0.4, 0.02, centerDashWidth), markingMat);
-        const iso2 = new THREE.Mesh(new THREE.BoxGeometry(centerDashWidth, 0.02, this.tileSize * 0.4), markingMat);
-        iso1.position.y = paintHeight; iso2.position.y = paintHeight;
-        group.add(iso1); group.add(iso2);
-      }
+      // Place the GLB model for the core road surface
+      const file = fileForVariant(variant);
+  const url = urlForFile(file);
+  this.gltfCache.load(url).then((mesh: THREE.Group) => {
+        // rotate based on connection orientation
+        // For straight: if vertical (N+S), rotate 90deg
+        // For curve: rotate to match which two directions connect
+        // For T: rotate so the missing side points outwards
+        const rotY = this.rotationForVariant(variant, { n, s, w: wR, e });
+  mesh.rotation.y = rotY;
+  // Group already positioned at tile center, so add mesh at local origin
+        // Ensure only one instance per tile key; clear any previous pending child
+        group.add(mesh);
+  }).catch((err: unknown) => {
+        console.error('Failed to load road model', file, err);
+      });
+
+      // Optional extra markings can still be added later if desired.
       return group;
     };
+
+    // Build persistent road models only if the road layout changed
+    const computeRoadSignature = (m: any[][]) => m.map(r => r.map(t => (t.road ? '1' : '0')).join('')).join('|');
+    const roadSig = computeRoadSignature(map);
+    if (roadSig !== this.lastRoadSignature) {
+      this.roadsGroup.clear();
+      for (const row of map) {
+        for (const tile of row) {
+          if (tile.road) {
+            const rt = buildRoadTile(tile, map);
+            this.roadsGroup.add(rt);
+          }
+        }
+      }
+      this.lastRoadSignature = roadSig;
+    }
     const overlaySel = (document.getElementById('hudOverlay') as HTMLSelectElement);
     const overlayMode = ((window as any).SIMCITY_OVERLAY_MODE ?? (overlaySel ? overlaySel.value : undefined)) || 'none';
     // Collect poles first for power line connection rendering
@@ -521,11 +451,7 @@ export class OrthoRenderer {
 
     for (const row of map) {
       for (const tile of row) {
-        if (tile.road) {
-          // Build variant road tile with sidewalks & markings
-          const rt = buildRoadTile(tile, map);
-          this.gridGroup.add(rt);
-        }
+  // Roads are handled by roadsGroup above
 
         // Zone tile rendering (skip only the zone mesh if no zone, but still allow infra below)
         if (tile.zone) {
@@ -954,5 +880,48 @@ export class OrthoRenderer {
       up: { x: +up.x.toFixed(3), y: +up.y.toFixed(3), z: +up.z.toFixed(3) },
       handed: +handedness.toFixed(3)
     });
+  }
+
+  // Compute Y-rotation for a road model variant based on which sides connect
+  // Returns radians
+  private rotationForVariant(variant: RoadVariant, conn: { n: any; s: any; w: any; e: any; }): number {
+    const { n, s, w, e } = conn;
+    switch (variant) {
+      case 'straight':
+        // If vertical (N and S), rotate 90deg, otherwise default (E-W)
+        return (n && s && !w && !e) ? Math.PI / 2 : 0;
+      case 'curve': {
+        // Map which two directions connect to rotation so the curve bends between them
+        // North-east and south-west curves are rotated an additional 180°
+        if (n && e) return 0 + Math.PI;       // north-east: 0° + 180° = 180°
+        if (e && s) return Math.PI / 2;       // east-south: no change
+        if (s && w) return Math.PI + Math.PI; // south-west: 180° + 180° = 360° (0°)
+        if (w && n) return -Math.PI / 2;      // west-north: no change
+        return 0;
+      }
+      case 'deadend': {
+        // Dead end points toward the open direction; rotate so the open side aligns
+        // North and south facing roads are rotated 90° clockwise
+        // East and west facing roads are rotated 90° counter-clockwise
+        if (n) return Math.PI - Math.PI / 2;  // open to north: 180° - 90° = 90°
+        if (e) return -Math.PI / 2 + Math.PI / 2;  // open to east: -90° + 90° = 0°
+        if (s) return 0 - Math.PI / 2;        // open to south: 0° - 90° = -90°
+        if (w) return Math.PI / 2 + Math.PI / 2;   // open to west: 90° + 90° = 180°
+        return 0;
+      }
+      case 't': {
+        // T intersection missing one side; rotate so the missing side points outward
+        // North-South-West and North-South-East intersections are rotated an additional 180°
+        if (!n) return 0;                           // missing north -> default
+        if (!e) return Math.PI / 2 + Math.PI;       // missing east (N-S-W): 90° + 180° = 270°
+        if (!s) return Math.PI;                     // missing south -> no change
+        if (!w) return -Math.PI / 2 + Math.PI;      // missing west (N-S-E): -90° + 180° = 90°
+        return 0;
+      }
+      case 'intersection':
+      case 'isolated':
+      default:
+        return 0; // symmetric
+    }
   }
 }
