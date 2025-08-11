@@ -20,6 +20,7 @@ export interface WorldImpl extends World {
   timeAccumulator: number;
   fixedDelta: number; // seconds per tick
   map: Tile[][]; // simple 2D tile grid
+  actionQueue: any[]; // will be refined by action type definitions
 }
 
 export function createWorld(_options: WorldOptions = {}): WorldImpl {
@@ -38,7 +39,19 @@ export function createWorld(_options: WorldOptions = {}): WorldImpl {
     timeAccumulator: 0,
     fixedDelta: 1 / 2, // 2 ticks per second initial
     map,
+    actionQueue: [],
   };
+}
+
+// Basic action queue operations (generic any until actions module defines types)
+export function enqueueAction(world: WorldImpl, action: any) {
+  world.actionQueue.push(action);
+}
+
+export function drainActions(world: WorldImpl): any[] {
+  const q = world.actionQueue;
+  world.actionQueue = [];
+  return q;
 }
 
 export function addSystem(world: WorldImpl, system: System) {

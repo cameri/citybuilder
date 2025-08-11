@@ -4,15 +4,15 @@ import typescriptLogo from './typescript.svg';
 import viteLogo from '/vite.svg';
 // ECS scaffold imports
 import type { System } from './ecs/system';
-import { addSystem, createWorld, updateWorld } from './ecs/world';
+import { addSystem, createWorld, enqueueAction, updateWorld } from './ecs/world';
 import { zoningSystem } from './systems/zoningSystem';
 
 const world = createWorld();
 addSystem(world, zoningSystem);
 
-// Demo: zone a few tiles residential to see development flag update later
-;(world as any).map[2][2].zone = 'R'
-;(world as any).map[2][3].zone = 'R'
+// Demo: enqueue a couple of zone actions
+enqueueAction(world, { type: 'SET_ZONE', x: 2, y: 2, zone: 'R' });
+enqueueAction(world, { type: 'SET_ZONE', x: 3, y: 2, zone: 'R' });
 
 // Example no-op system to demonstrate ticking
 const logSystem: System = {
