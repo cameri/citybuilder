@@ -23,8 +23,9 @@ export class ZoneInspector {
     this.panel.id = 'zone-inspector';
     this.panel.style.cssText = `
       position: fixed;
-      top: 80px;
+      top: 50%;
       right: 20px;
+      transform: translateY(-50%);
       width: 220px;
       background: rgba(34, 34, 34, 0.95);
       border: 1px solid #444;

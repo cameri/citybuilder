@@ -12,6 +12,7 @@ import { zoningSystem } from './systems/zoningSystem';
 import { Minimap } from './ui/minimap';
 import { MouseHandler, createToolMouseHandler } from './ui/mouseHandler';
 import { ToolsPalette } from './ui/toolsPalette';
+import { ViewControls } from './ui/viewControls';
 import { ZoneInspector } from './ui/zoneInspector';
 import { initializeRNG } from './utils/seededRng';
 
@@ -113,6 +114,47 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
 const rendererContainer = document.getElementById('viewport')!;
 const ortho = new OrthoRenderer(rendererContainer, { tileSize: 1 });
 
+// View controls for camera manipulation
+const viewControls = new ViewControls({ mapSize: { width: 16, height: 16 } });
+
+// Set up view control callbacks
+viewControls.setOnCenter(() => {
+  ortho.centerCameraOnMap();
+  // Save camera state after centering
+  viewControls.saveCameraState(ortho.getCameraState());
+});
+
+viewControls.setOnZoomIn(() => {
+  ortho.zoomIn();
+  // Save camera state after zooming
+  viewControls.saveCameraState(ortho.getCameraState());
+});
+
+viewControls.setOnZoomOut(() => {
+  ortho.zoomOut();
+  // Save camera state after zooming
+  viewControls.saveCameraState(ortho.getCameraState());
+});
+
+viewControls.setOnResetZoom(() => {
+  ortho.resetZoom();
+  // Save camera state after reset zoom
+  viewControls.saveCameraState(ortho.getCameraState());
+});
+
+// Restore camera state from local storage on startup
+const savedCameraState = viewControls.loadCameraState();
+if (savedCameraState) {
+  // Set a flag to skip the default camera initialization
+  ortho.initializedView = true;
+  ortho.setCameraState(savedCameraState);
+}
+
+// Set up camera change callback for mouse wheel zoom
+ortho.setOnCameraChange(() => {
+  viewControls.saveCameraState(ortho.getCameraState());
+});
+
 // Tools palette and mouse interaction
 const toolsPaletteContainer = document.createElement('div');
 document.body.appendChild(toolsPaletteContainer);
@@ -122,8 +164,21 @@ const toolsPalette = new ToolsPalette(toolsPaletteContainer);
 const zoneInspector = new ZoneInspector();
 const minimap = new Minimap({ width: 16, height: 16 });
 
+// Connect minimap click-to-pan to camera
+minimap.setOnPanToTile((tileX, tileY) => {
+  ortho.centerCameraOnTile(tileX, tileY);
+  // Save camera state after minimap panning
+  viewControls.saveCameraState(ortho.getCameraState());
+});
+
 // Mouse handler for tool interaction
 const mouseHandler = new MouseHandler(rendererContainer, { width: 16, height: 16 });
+mouseHandler.setCamera(ortho.camera, ortho.scene);
+mouseHandler.setOnCameraPan((deltaX, deltaY) => {
+  ortho.panCamera(deltaX, deltaY);
+  // Save camera state after panning
+  viewControls.saveCameraState(ortho.getCameraState());
+});
 
 // Connect tools palette to mouse handler
 let currentTool = toolsPalette.getActiveTool();
@@ -145,7 +200,8 @@ toolsPalette.setOnToolChange((tool) => {
         ortho.setHoveredTile(null, null);
         zoneInspector.hideTile();
       }
-    }
+    },
+    { width: 16, height: 16 } // Pass map size
   ));
 });
 
@@ -164,7 +220,8 @@ mouseHandler.setInteraction(createToolMouseHandler(currentTool,
       ortho.setHoveredTile(null, null);
       zoneInspector.hideTile();
     }
-  }
+  },
+  { width: 16, height: 16 } // Pass map size
 ));
 // FPS counter setup
 let fpsLast = performance.now();

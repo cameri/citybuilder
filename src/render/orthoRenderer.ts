@@ -4,6 +4,12 @@ export interface OrthoRendererOptions {
   tileSize?: number; // world units per tile
 }
 
+export interface PanState {
+  isPanning: boolean;
+  lastX: number;
+  lastY: number;
+}
+
 export class OrthoRenderer {
   scene = new THREE.Scene();
   camera: THREE.OrthographicCamera;
@@ -15,6 +21,9 @@ export class OrthoRenderer {
   highlightGroup = new THREE.Group();
   initializedView = false;
   hoveredTile: { x: number; y: number } | null = null;
+  panState: PanState = { isPanning: false, lastX: 0, lastY: 0 };
+  mapSize = { width: 16, height: 16 };
+  onCameraChange?: () => void;
 
   constructor(container: HTMLElement, opts: OrthoRendererOptions = {}) {
     this.container = container;
@@ -37,7 +46,174 @@ export class OrthoRenderer {
     this.scene.add(this.gridGroup);
     this.scene.add(this.highlightGroup);
 
+    this.bindPanEvents();
     window.addEventListener('resize', () => this.onResize());
+  }
+
+  private bindPanEvents() {
+    let isPanning = false;
+    let lastMouseX = 0;
+    let lastMouseY = 0;
+
+    this.container.addEventListener('mousedown', (e) => {
+      if (e.button === 1 || (e.button === 0 && e.ctrlKey)) { // Middle mouse or Ctrl+Left
+        isPanning = true;
+        lastMouseX = e.clientX;
+        lastMouseY = e.clientY;
+        this.container.style.cursor = 'grabbing';
+        e.preventDefault();
+      }
+    });
+
+    this.container.addEventListener('mousemove', (e) => {
+      if (isPanning) {
+        const deltaX = e.clientX - lastMouseX;
+        const deltaY = e.clientY - lastMouseY;
+
+        this.panCamera(-deltaX * 0.03, deltaY * 0.03);
+
+        lastMouseX = e.clientX;
+        lastMouseY = e.clientY;
+        e.preventDefault();
+      }
+    });
+
+    this.container.addEventListener('mouseup', (e) => {
+      if (isPanning) {
+        isPanning = false;
+        this.container.style.cursor = 'default';
+        e.preventDefault();
+      }
+    });
+
+    this.container.addEventListener('mouseleave', () => {
+      if (isPanning) {
+        isPanning = false;
+        this.container.style.cursor = 'default';
+      }
+    });
+
+    // Zoom with mouse wheel
+    this.container.addEventListener('wheel', (e) => {
+      const zoomSpeed = 0.1;
+      const zoom = e.deltaY > 0 ? 1 + zoomSpeed : 1 - zoomSpeed;
+      this.zoomCamera(zoom);
+      if (this.onCameraChange) {
+        this.onCameraChange();
+      }
+      e.preventDefault();
+    });
+  }
+
+  panCamera(deltaX: number, deltaY: number) {
+    // Pan the camera by moving its position and lookAt target
+    const panVector = new THREE.Vector3(deltaX, 0, deltaY);
+    this.camera.position.add(panVector);
+
+    // Update the camera's lookAt target to maintain the same view direction
+    const lookAtTarget = new THREE.Vector3();
+    this.camera.getWorldDirection(lookAtTarget);
+    lookAtTarget.multiplyScalar(-10); // distance to look at
+    lookAtTarget.add(this.camera.position);
+    this.camera.lookAt(lookAtTarget);
+  }
+
+  zoomCamera(factor: number) {
+    const frustumHeight = (this.camera.top - this.camera.bottom);
+    const newHeight = frustumHeight * factor;
+    const halfHeight = newHeight / 2;
+    const aspect = (this.camera.right - this.camera.left) / frustumHeight;
+
+    this.camera.top = halfHeight;
+    this.camera.bottom = -halfHeight;
+    this.camera.left = -halfHeight * aspect;
+    this.camera.right = halfHeight * aspect;
+    this.camera.updateProjectionMatrix();
+  }
+
+  centerCameraOnTile(tileX: number, tileY: number) {
+    const worldX = tileX * this.tileSize;
+    const worldZ = tileY * this.tileSize;
+
+    // Maintain the current camera height and angle
+    const currentHeight = this.camera.position.y;
+    const offset = new THREE.Vector3(8, 0, 8); // Maintain isometric offset
+
+    this.camera.position.set(worldX + offset.x, currentHeight, worldZ + offset.z);
+    this.camera.lookAt(worldX, 0, worldZ);
+  }
+
+  centerCameraOnMap() {
+    const centerX = (this.mapSize.width - 1) / 2;
+    const centerY = (this.mapSize.height - 1) / 2;
+    this.centerCameraOnTile(centerX, centerY);
+  }
+
+  getCameraState() {
+    const frustumHeight = this.camera.top - this.camera.bottom;
+
+    // Calculate current lookAt target
+    const lookAtTarget = new THREE.Vector3();
+    this.camera.getWorldDirection(lookAtTarget);
+    lookAtTarget.multiplyScalar(-10); // distance to look at
+    lookAtTarget.add(this.camera.position);
+
+    return {
+      position: {
+        x: this.camera.position.x,
+        y: this.camera.position.y,
+        z: this.camera.position.z
+      },
+      lookAt: {
+        x: lookAtTarget.x,
+        y: lookAtTarget.y,
+        z: lookAtTarget.z
+      },
+      zoom: frustumHeight
+    };
+  }
+
+  setCameraState(state: { position: { x: number; y: number; z: number }, lookAt: { x: number; y: number; z: number }, zoom: number }) {
+    // Set camera position
+    this.camera.position.set(state.position.x, state.position.y, state.position.z);
+
+    // Set camera zoom (frustum size)
+    const halfHeight = state.zoom / 2;
+    const aspect = (this.camera.right - this.camera.left) / (this.camera.top - this.camera.bottom);
+
+    this.camera.top = halfHeight;
+    this.camera.bottom = -halfHeight;
+    this.camera.left = -halfHeight * aspect;
+    this.camera.right = halfHeight * aspect;
+    this.camera.updateProjectionMatrix();
+
+    // Set camera lookAt
+    this.camera.lookAt(state.lookAt.x, state.lookAt.y, state.lookAt.z);
+  }
+
+  zoomIn() {
+    this.zoomCamera(0.8); // Zoom in by 20%
+  }
+
+  zoomOut() {
+    this.zoomCamera(1.25); // Zoom out by 25%
+  }
+
+  resetZoom() {
+    // Reset to default zoom level (20 units frustum height)
+    const defaultZoom = 20;
+    const halfHeight = defaultZoom / 2;
+    const aspect = (this.camera.right - this.camera.left) / (this.camera.top - this.camera.bottom);
+
+    this.camera.top = halfHeight;
+    this.camera.bottom = -halfHeight;
+    this.camera.left = -halfHeight * aspect;
+    this.camera.right = halfHeight * aspect;
+    this.camera.updateProjectionMatrix();
+  }
+
+  setOnCameraChange(callback: () => void) {
+    this.onCameraChange = callback;
   }
 
   onResize() {

@@ -1,4 +1,5 @@
 // Mouse interaction system for tool usage and tile interaction
+import * as THREE from 'three';
 import type { ToolType } from './toolsPalette';
 
 export interface MousePosition {
@@ -18,11 +19,16 @@ export interface MouseInteraction {
 
 export class MouseHandler {
   private container: HTMLElement;
-  private mapOffset: { x: number; y: number };
   private mapSize: { width: number; height: number };
   private interaction?: MouseInteraction;
   private isMouseDown = false;
   private lastMousePos?: MousePosition;
+  private camera?: THREE.OrthographicCamera;
+  private scene?: THREE.Scene;
+  private isPanning = false;
+  private lastPanX = 0;
+  private lastPanY = 0;
+  private onCameraPan?: (deltaX: number, deltaY: number) => void;
 
   constructor(
     container: HTMLElement,
@@ -30,12 +36,17 @@ export class MouseHandler {
   ) {
     this.container = container;
     this.mapSize = mapSize;
-    this.mapOffset = {
-      x: -(mapSize.width - 1) / 2,
-      y: -(mapSize.height - 1) / 2
-    };
 
     this.bindEvents();
+  }
+
+  setCamera(camera: THREE.OrthographicCamera, scene: THREE.Scene) {
+    this.camera = camera;
+    this.scene = scene;
+  }
+
+  setOnCameraPan(callback: (deltaX: number, deltaY: number) => void) {
+    this.onCameraPan = callback;
   }
 
   setInteraction(interaction: MouseInteraction) {
@@ -47,9 +58,17 @@ export class MouseHandler {
     this.container.addEventListener('mousedown', this.onMouseDown.bind(this));
     this.container.addEventListener('mouseup', this.onMouseUp.bind(this));
     this.container.addEventListener('click', this.onMouseClick.bind(this));
+    this.container.addEventListener('mouseleave', this.onMouseLeave.bind(this));
 
     // Prevent context menu on right click
     this.container.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+
+  private onMouseLeave(_e: MouseEvent) {
+    if (this.isPanning) {
+      this.isPanning = false;
+      this.container.style.cursor = 'default';
+    }
   }
 
   private screenToWorld(clientX: number, clientY: number): MousePosition {
@@ -57,31 +76,77 @@ export class MouseHandler {
     const canvasX = clientX - rect.left;
     const canvasY = clientY - rect.top;
 
-    // Convert canvas coordinates to world coordinates
-    // This is a simplified conversion - in a real implementation you'd use
-    // the camera's projection matrix for accurate world coordinates
-    const centerX = rect.width / 2;
-    const centerY = rect.height / 2;
+    if (!this.camera) {
+      // Fallback to simplified conversion if camera not set
+      const centerX = rect.width / 2;
+      const centerY = rect.height / 2;
+      const worldX = (canvasX - centerX) * 0.02;
+      const worldY = (canvasY - centerY) * 0.02;
+      const tileX = Math.floor(worldX + this.mapSize.width / 2);
+      const tileY = Math.floor(worldY + this.mapSize.height / 2);
 
-    // Rough conversion assuming orthographic view
-    const worldX = (canvasX - centerX) * 0.02; // scale factor
-    const worldY = (canvasY - centerY) * 0.02;
+      return {
+        x: worldX,
+        y: worldY,
+        tileX: tileX, // Don't clamp here - let onMouseMove handle bounds checking
+        tileY: tileY
+      };
+    }
 
-    // Convert world coordinates to tile coordinates
-    const tileX = Math.floor(worldX - this.mapOffset.x);
-    const tileY = Math.floor(worldY - this.mapOffset.y);
+    // Convert canvas coordinates to normalized device coordinates (NDC)
+    const ndcX = (canvasX / rect.width) * 2 - 1;
+    const ndcY = -(canvasY / rect.height) * 2 + 1;
+
+    // Create a vector in camera space
+    const vector = new THREE.Vector3(ndcX, ndcY, 0);
+
+    // Unproject to world coordinates
+    vector.unproject(this.camera);
+
+    // For orthographic camera, we need to raycast to the ground plane (y=0)
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), this.camera);
+
+    // Intersect with ground plane at y=0
+    const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+    const intersection = new THREE.Vector3();
+    raycaster.ray.intersectPlane(groundPlane, intersection);
+
+    const worldX = intersection.x;
+    const worldZ = intersection.z;
+
+    // Convert world coordinates to tile coordinates (don't clamp here)
+    // Since tiles are centered at integer coordinates (5,5) means the tile occupies [4.5,5.5)
+    // We need to add 0.5 before flooring to get the correct tile
+    const tileX = Math.floor(worldX + 0.5);
+    const tileY = Math.floor(worldZ + 0.5);
 
     return {
       x: worldX,
-      y: worldY,
-      tileX: Math.max(0, Math.min(this.mapSize.width - 1, tileX)),
-      tileY: Math.max(0, Math.min(this.mapSize.height - 1, tileY))
+      y: worldZ,
+      tileX: tileX, // Return raw tile coordinates
+      tileY: tileY  // Return raw tile coordinates
     };
   }
 
   private onMouseMove(e: MouseEvent) {
     const pos = this.screenToWorld(e.clientX, e.clientY);
     this.lastMousePos = pos;
+
+    // Handle camera panning with left-click drag
+    if (this.isPanning) {
+      const deltaX = e.clientX - this.lastPanX;
+      const deltaY = e.clientY - this.lastPanY;
+
+      if (this.onCameraPan) {
+        this.onCameraPan(-deltaX * 0.03, deltaY * 0.03);
+      }
+
+      this.lastPanX = e.clientX;
+      this.lastPanY = e.clientY;
+      return; // Don't process normal mouse move when panning
+    }
+
     this.interaction?.onMouseMove?.(pos);
 
     // Check if hovering over a valid tile
@@ -95,12 +160,30 @@ export class MouseHandler {
 
   private onMouseDown(e: MouseEvent) {
     this.isMouseDown = true;
+
+    // Check if this should start camera panning (left-click + Alt key)
+    if (e.button === 0 && e.altKey) {
+      this.isPanning = true;
+      this.lastPanX = e.clientX;
+      this.lastPanY = e.clientY;
+      this.container.style.cursor = 'grabbing';
+      e.preventDefault();
+      return;
+    }
+
     if (this.lastMousePos) {
       this.interaction?.onMouseDown?.(this.lastMousePos, e.button);
     }
   }
 
   private onMouseUp(e: MouseEvent) {
+    if (this.isPanning) {
+      this.isPanning = false;
+      this.container.style.cursor = 'default';
+      e.preventDefault();
+      return;
+    }
+
     this.isMouseDown = false;
     if (this.lastMousePos) {
       this.interaction?.onMouseUp?.(this.lastMousePos, e.button);
@@ -125,7 +208,8 @@ export class MouseHandler {
 export function createToolMouseHandler(
   activeTool: ToolType,
   onAction: (action: any) => void,
-  onHover?: (pos: MousePosition | null, tile?: any) => void
+  onHover?: (pos: MousePosition | null, tile?: any) => void,
+  mapSize: { width: number; height: number } = { width: 16, height: 16 }
 ): MouseInteraction {
   let isDragging = false;
   let dragStart: MousePosition | undefined;
@@ -138,7 +222,7 @@ export function createToolMouseHandler(
 
         // Immediate action for some tools
         if (activeTool === 'road' || activeTool === 'bulldoze') {
-          handleToolAction(activeTool, pos, onAction);
+          handleToolAction(activeTool, pos, onAction, mapSize);
         }
       }
     },
@@ -147,7 +231,7 @@ export function createToolMouseHandler(
       if (isDragging && dragStart) {
         // Continue action for drawing tools
         if (activeTool === 'road' || activeTool === 'bulldoze') {
-          handleToolAction(activeTool, pos, onAction);
+          handleToolAction(activeTool, pos, onAction, mapSize);
         }
       }
     },
@@ -158,7 +242,7 @@ export function createToolMouseHandler(
 
         // Handle area tools (zoning)
         if (activeTool.startsWith('zone_')) {
-          handleZoneAction(activeTool, dragStart, pos, onAction);
+          handleZoneAction(activeTool, dragStart, pos, onAction, mapSize);
         }
 
         dragStart = undefined;
@@ -169,7 +253,10 @@ export function createToolMouseHandler(
       if (button === 0) { // Left click
         // Handle single-click tools
         if (activeTool === 'inspect') {
-          onAction({ type: 'INSPECT_TILE', x: pos.tileX, y: pos.tileY });
+          // Clamp coordinates for inspect action
+          const clampedX = Math.max(0, Math.min(mapSize.width - 1, pos.tileX));
+          const clampedY = Math.max(0, Math.min(mapSize.height - 1, pos.tileY));
+          onAction({ type: 'INSPECT_TILE', x: clampedX, y: clampedY });
         }
       }
     },
@@ -180,13 +267,22 @@ export function createToolMouseHandler(
       }
     }
   };
-}function handleToolAction(tool: ToolType, pos: MousePosition, onAction: (action: any) => void) {
+}function handleToolAction(
+  tool: ToolType,
+  pos: MousePosition,
+  onAction: (action: any) => void,
+  mapSize: { width: number; height: number }
+) {
+  // Clamp coordinates for actions to ensure they're within bounds
+  const clampedX = Math.max(0, Math.min(mapSize.width - 1, pos.tileX));
+  const clampedY = Math.max(0, Math.min(mapSize.height - 1, pos.tileY));
+
   switch (tool) {
     case 'road':
-      onAction({ type: 'PLACE_ROAD', x: pos.tileX, y: pos.tileY });
+      onAction({ type: 'PLACE_ROAD', x: clampedX, y: clampedY });
       break;
     case 'bulldoze':
-      onAction({ type: 'BULLDOZE', x: pos.tileX, y: pos.tileY });
+      onAction({ type: 'BULLDOZE', x: clampedX, y: clampedY });
       break;
   }
 }
@@ -195,12 +291,19 @@ function handleZoneAction(
   tool: ToolType,
   start: MousePosition,
   end: MousePosition,
-  onAction: (action: any) => void
+  onAction: (action: any) => void,
+  mapSize: { width: number; height: number }
 ) {
-  const minX = Math.min(start.tileX, end.tileX);
-  const maxX = Math.max(start.tileX, end.tileX);
-  const minY = Math.min(start.tileY, end.tileY);
-  const maxY = Math.max(start.tileY, end.tileY);
+  // Clamp coordinates for actions to ensure they're within bounds
+  const clampedStartX = Math.max(0, Math.min(mapSize.width - 1, start.tileX));
+  const clampedStartY = Math.max(0, Math.min(mapSize.height - 1, start.tileY));
+  const clampedEndX = Math.max(0, Math.min(mapSize.width - 1, end.tileX));
+  const clampedEndY = Math.max(0, Math.min(mapSize.height - 1, end.tileY));
+
+  const minX = Math.min(clampedStartX, clampedEndX);
+  const maxX = Math.max(clampedStartX, clampedEndX);
+  const minY = Math.min(clampedStartY, clampedEndY);
+  const maxY = Math.max(clampedStartY, clampedEndY);
 
   const w = maxX - minX + 1;
   const h = maxY - minY + 1;

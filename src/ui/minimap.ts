@@ -4,6 +4,7 @@ export class Minimap {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
   private mapSize: { width: number; height: number };
+  private onPanToTile?: (tileX: number, tileY: number) => void;
 
   constructor(mapSize: { width: number; height: number }) {
     this.mapSize = mapSize;
@@ -13,6 +14,39 @@ export class Minimap {
 
     this.setupCanvas();
     this.setupContainer();
+    this.bindEvents();
+  }
+
+  setOnPanToTile(callback: (tileX: number, tileY: number) => void) {
+    this.onPanToTile = callback;
+  }
+
+  private bindEvents() {
+    this.canvas.addEventListener('click', (e) => {
+      const rect = this.canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+
+      // Convert canvas coordinates to tile coordinates
+      const tileX = Math.floor((x / rect.width) * this.mapSize.width);
+      const tileY = Math.floor((y / rect.height) * this.mapSize.height);
+
+      // Clamp to valid range
+      const clampedX = Math.max(0, Math.min(this.mapSize.width - 1, tileX));
+      const clampedY = Math.max(0, Math.min(this.mapSize.height - 1, tileY));
+
+      if (this.onPanToTile) {
+        this.onPanToTile(clampedX, clampedY);
+      }
+    });
+
+    this.canvas.addEventListener('mouseenter', () => {
+      this.canvas.style.cursor = 'pointer';
+    });
+
+    this.canvas.addEventListener('mouseleave', () => {
+      this.canvas.style.cursor = 'default';
+    });
   }
 
   private setupCanvas() {
