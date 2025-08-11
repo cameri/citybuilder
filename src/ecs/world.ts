@@ -2,6 +2,12 @@ import { createEntity, type EntityRecord } from './entity';
 import type { System } from './system';
 import type { ComponentStore, SystemContext, World } from './types';
 
+// Simple map / zoning model kept lightweight for Phase 1 scaffold
+export type ZoneType = 'R' | 'C' | 'I' | null;
+export interface Tile {
+  x: number; y: number; zone: ZoneType; developed: boolean;
+}
+
 export interface WorldOptions {
   maxEntities?: number;
 }
@@ -13,9 +19,17 @@ export interface WorldImpl extends World {
   tick: number;
   timeAccumulator: number;
   fixedDelta: number; // seconds per tick
+  map: Tile[][]; // simple 2D tile grid
 }
 
 export function createWorld(_options: WorldOptions = {}): WorldImpl {
+  const width = 16; const height = 16;
+  const map: Tile[][] = [];
+  for (let y = 0; y < height; y++) {
+    const row: Tile[] = [];
+    for (let x = 0; x < width; x++) row.push({ x, y, zone: null, developed: false });
+    map.push(row);
+  }
   return {
     entities: [],
     systems: [],
@@ -23,6 +37,7 @@ export function createWorld(_options: WorldOptions = {}): WorldImpl {
     tick: 0,
     timeAccumulator: 0,
     fixedDelta: 1 / 2, // 2 ticks per second initial
+    map,
   };
 }
 
