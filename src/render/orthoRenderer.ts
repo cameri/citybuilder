@@ -319,7 +319,8 @@ export class OrthoRenderer {
       else if (this.activeTool === 'infra_waterpipe') color = 0x00bcd4;
       else if (this.activeTool === 'infra_gaspipeline') color = 0xff9800;
       const roadMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.35 });
-      const roadGeom = new THREE.BoxGeometry(this.tileSize * 0.95, 0.09, this.tileSize * 0.95);
+  // Use full tile size for preview so adjacent preview tiles visually connect without gaps
+  const roadGeom = new THREE.BoxGeometry(this.tileSize * 1.0, 0.09, this.tileSize * 1.0);
       for (const t of tiles) {
         const mesh = new THREE.Mesh(roadGeom, roadMat);
         mesh.position.set(t.x * this.tileSize, 0.045, t.y * this.tileSize);
@@ -374,7 +375,8 @@ export class OrthoRenderer {
     }
 
     const geom = new THREE.BoxGeometry(this.tileSize * 0.95, 0.25, this.tileSize * 0.95);
-    const roadGeom = new THREE.BoxGeometry(this.tileSize * 0.95, 0.05, this.tileSize * 0.95);
+  // Road geometry now fills entire tile (was 0.95) to eliminate visible gaps between adjacent road tiles
+  const roadGeom = new THREE.BoxGeometry(this.tileSize * 1.0, 0.05, this.tileSize * 1.0);
     const roadMat = new THREE.MeshStandardMaterial({ color: 0x555555 });
     const overlaySel = (document.getElementById('hudOverlay') as HTMLSelectElement);
     const overlayMode = ((window as any).SIMCITY_OVERLAY_MODE ?? (overlaySel ? overlaySel.value : undefined)) || 'none';
