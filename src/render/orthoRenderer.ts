@@ -22,9 +22,11 @@ export class OrthoRenderer {
   highlightGroup = new THREE.Group();
   selectionGroup = new THREE.Group();
   infraGroup = new THREE.Group(); // infrastructure (poles, pipes, lines)
+  buildingGroup = new THREE.Group(); // static buildings and service structures
   groundGroup = new THREE.Group(); // static ground tiles
   boundaryGroup = new THREE.Group(); // map boundary lines
   private groundBuilt = false;
+  private buildingsBuilt = false;
   initializedView = false;
   hoveredTile: { x: number; y: number; } | null = null;
   // Track the currently active tool so highlight visuals can adapt (e.g., bulldoze = red)
@@ -44,7 +46,7 @@ export class OrthoRenderer {
     this.container = container;
     this.tileSize = opts.tileSize ?? 1;
     const aspect = container.clientWidth / container.clientHeight || 1;
-    const half = 10; // view half-height
+    const half = 25; // Expanded view half-height to show more of the map
     this.camera = new THREE.OrthographicCamera(-half * aspect, half * aspect, half, -half, -100, 100);
     this.camera.position.set(10, 10, 10);
     this.camera.up.set(0, 1, 0);
@@ -66,6 +68,7 @@ export class OrthoRenderer {
     this.scene.add(this.highlightGroup);
     this.scene.add(this.selectionGroup);
     this.scene.add(this.infraGroup);
+    this.scene.add(this.buildingGroup);
     this.scene.add(this.boundaryGroup);
 
     this.bindPanEvents();
@@ -353,11 +356,18 @@ export class OrthoRenderer {
       this.onCameraMoved('init');
       // Build ground tile layer (only once per map size)
       this.buildGround(w, h);
+      this.buildingsBuilt = false; // Reset buildings flag for new map
       this.initializedView = true;
     }
     // Simple rebuild each frame for now (small maps); optimize later.
     this.gridGroup.clear();
-    this.infraGroup.clear();
+    this.infraGroup.clear(); // Only clear dynamic infrastructure (poles, pipes, power lines)
+
+    // Clear and rebuild buildings only when needed (not every frame)
+    if (!this.buildingsBuilt) {
+      this.buildingGroup.clear();
+    }
+
     const geom = new THREE.BoxGeometry(this.tileSize * 0.95, 0.25, this.tileSize * 0.95);
     const roadGeom = new THREE.BoxGeometry(this.tileSize * 0.95, 0.05, this.tileSize * 0.95);
     const roadMat = new THREE.MeshStandardMaterial({ color: 0x555555 });
@@ -543,7 +553,7 @@ export class OrthoRenderer {
         }
 
         // Service buildings and infrastructure buildings (render only at the root tile)
-        if (tile.building && tile.buildingRoot && tile.buildingRoot.x === tile.x && tile.buildingRoot.y === tile.y) {
+        if (!this.buildingsBuilt && tile.building && tile.buildingRoot && tile.buildingRoot.x === tile.x && tile.buildingRoot.y === tile.y) {
           const bp = BLUEPRINTS[tile.building];
           if (bp && bp.color) {
             const buildingHeight = Math.max(0.5, bp.size.w * bp.size.h * 0.3); // Height scales with size
@@ -603,10 +613,15 @@ export class OrthoRenderer {
             }
 
             building.userData.building = tile.building;
-            this.infraGroup.add(building);
+            this.buildingGroup.add(building);
           }
         }
       }
+    }
+
+    // Mark buildings as built after first pass
+    if (!this.buildingsBuilt) {
+      this.buildingsBuilt = true;
     }
 
     // Power line connections (horizontal & vertical within 5 tiles) with sagging catenary-like curve

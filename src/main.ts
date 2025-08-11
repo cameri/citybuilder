@@ -107,8 +107,8 @@ requestAnimationFrame(frame);
 
 // Game DOM bootstrap: dedicated 3D viewport container (removes legacy 2D canvas)
 document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
-  <div id="viewport" style="width:640px;height:640px;position:relative;border:1px solid #333;background:#111;"></div>
-  <div id="hud" style="position:fixed;top:8px;left:50%;transform:translateX(-50%);background:#222;padding:6px 10px;font:12px/1.2 monospace;color:#fff;border:1px solid #444;border-radius:4px;display:flex;gap:12px;align-items:center;">
+  <div id="viewport" style="position:fixed;inset:0;background:#111;z-index:0;overflow:hidden;"></div>
+  <div id="hud" style="position:fixed;top:8px;left:50%;transform:translateX(-50%);background:#222;padding:6px 10px;font:12px/1.2 monospace;color:#fff;border:1px solid #444;border-radius:4px;display:flex;gap:12px;align-items:center;z-index:10;">
     <span id="hudFunds">$----</span>
     <span id="hudPop">Pop -- (Emp --)</span>
     <label>Speed:
@@ -148,6 +148,8 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
 // Three.js orthographic renderer
 const rendererContainer = document.getElementById('viewport')!;
 const ortho = new OrthoRenderer(rendererContainer, { tileSize: 1 });
+// Force an initial resize so camera/frustum match full-screen container
+ortho.onResize();
 
 // View controls for camera manipulation
 const viewControls = new ViewControls({ mapSize: { width: 48, height: 48 } });
