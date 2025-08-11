@@ -1,3 +1,4 @@
+import { BLUEPRINTS } from '../blueprints';
 import type { System } from '../ecs/system';
 import { createSystem } from '../ecs/system';
 import type { SystemContext } from '../ecs/types';
@@ -10,9 +11,17 @@ export const populationSystem: System = createSystem('population', 30, (ctx: Sys
   for (const row of map) {
     for (const tile of row) {
       if (!tile.developed) continue;
-      if (tile.zone === 'R') residents += 5; // base inhabitants per residential tile
-      if (tile.zone === 'C') jobs += 4; // base jobs per commercial tile
-      if (tile.zone === 'I') jobs += 6; // industrial jobs
+      if (tile.building) {
+        const bp = (BLUEPRINTS as any)[tile.building];
+        if (bp && bp.effects) {
+          if (bp.effects.residents) residents += bp.effects.residents;
+          if (bp.effects.jobs) jobs += bp.effects.jobs;
+          continue; // skip zone default fallback
+        }
+      }
+      if (tile.zone === 'R') residents += 5;
+      if (tile.zone === 'C') jobs += 4;
+      if (tile.zone === 'I') jobs += 6;
     }
   }
   world.population.residents = residents;

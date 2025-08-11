@@ -7,6 +7,30 @@ export type ZoneType = 'R' | 'C' | 'I' | null;
 export interface Tile {
   x: number; y: number; zone: ZoneType; developed: boolean; progress?: number; // 0..1 construction
   road: boolean;
+  // Building footprint support
+  building?: string; // blueprint id if this tile is part of (root of) a building
+  buildingRoot?: { x: number; y: number }; // for multi-tile buildings every tile stores the root coord
+  // Phase 2 scalar fields baked onto tile for renderer simplicity (could be separated later)
+  pollution?: number; // 0..100
+  landValue?: number; // 0..100
+  level?: 1|2|3; // development level (auto evolves)
+  // Service coverage fields
+  coverage?: {
+    power?: boolean;
+    education?: number;
+    health?: number;
+    safety?: number;
+    gas?: boolean;
+    water?: boolean;
+    sewage?: boolean;
+    garbage?: boolean;
+  };
+  powered?: boolean;
+  trafficLoad?: number;
+  // Underground / infrastructure flags
+  waterPipe?: boolean; // water pipe present (underground)
+  gasPipe?: boolean;   // gas pipe present (underground)
+  powerPole?: boolean; // power pole structure (above ground)
 }
 
 export interface WorldOptions {
@@ -18,6 +42,7 @@ export interface WorldImpl extends World {
   systems: System[];
   componentStores: ComponentStore<any>[];
   tick: number;
+  simTimeSec: number; // accumulated simulated seconds
   timeAccumulator: number;
   fixedDelta: number; // current seconds per tick (affected by speed)
   baseFixedDelta: number; // base seconds per tick (speed=1)
@@ -27,14 +52,17 @@ export interface WorldImpl extends World {
   treasury: number;
   taxRate: number; // 0..0.25
   population: { residents: number; jobs: number; employmentRate: number };
+  // Phase 2 fields
+  overlayMode: 'none' | 'pollution' | 'landValue' | 'power';
+  rngSeed?: number; // deterministic seed for RNG
 }
 
 export function createWorld(_options: WorldOptions = {}): WorldImpl {
-  const width = 16; const height = 16;
+  const width = 48; const height = 48;
   const map: Tile[][] = [];
   for (let y = 0; y < height; y++) {
     const row: Tile[] = [];
-  for (let x = 0; x < width; x++) row.push({ x, y, zone: null, developed: false, progress: 0, road: false });
+  for (let x = 0; x < width; x++) row.push({ x, y, zone: null, developed: false, progress: 0, road: false, pollution: 0, landValue: 30, level: 1 });
     map.push(row);
   }
   return {
@@ -42,6 +70,7 @@ export function createWorld(_options: WorldOptions = {}): WorldImpl {
     systems: [],
     componentStores: [],
     tick: 0,
+  simTimeSec: 0,
     timeAccumulator: 0,
   fixedDelta: 1 / 2,
   baseFixedDelta: 1 / 2,
@@ -51,6 +80,8 @@ export function createWorld(_options: WorldOptions = {}): WorldImpl {
   treasury: 1000,
   taxRate: 0.1,
   population: { residents: 0, jobs: 0, employmentRate: 0 },
+  overlayMode: 'none',
+  rngSeed: undefined,
   };
 }
 
@@ -88,5 +119,8 @@ export function updateWorld(world: WorldImpl, deltaSec: number) {
     for (const system of world.systems) {
       system.update(ctx);
     }
+    // Advance in-game clock: 1 real second at speed=1 => +1 sim second (minute mapping handled in UI)
+    // Scale linearly with speed so higher speeds accelerate the clock.
+    world.simTimeSec += world.baseFixedDelta * world.speed;
   }
 }

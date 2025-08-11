@@ -289,20 +289,22 @@ export function createToolMouseHandler(
         lastDragRect = null;
         lastDragLine = null;
         dragBlocked = false;
-        if (activeTool === 'road' || activeTool === 'bulldoze') {
+    if (activeTool === 'road') {
           handleToolAction(activeTool, pos, onAction, mapSize);
         }
       }
     },
     onMouseMove: (pos) => {
       if (isDragging && dragStart) {
-        if (activeTool === 'road') {
+  if (activeTool === 'road' || activeTool === 'infra_powerpole' || activeTool === 'infra_waterpipe' || activeTool === 'infra_gaspipeline') {
           lastDragLine = computeLine(dragStart, pos);
           // dragBlocked will be set by main.ts hover callback
           onHover?.(pos, { x: pos.tileX, y: pos.tileY }, undefined, lastDragLine, dragBlocked);
           return;
-        } else if (activeTool === 'bulldoze') {
-          handleToolAction(activeTool, pos, onAction, mapSize);
+    } else if (activeTool === 'bulldoze') {
+      lastDragRect = computeRect(dragStart, pos);
+      onHover?.(pos, { x: pos.tileX, y: pos.tileY }, lastDragRect, undefined, dragBlocked);
+      return;
         } else if (activeTool.startsWith('zone_')) {
           lastDragRect = computeRect(dragStart, pos);
           onHover?.(pos, { x: pos.tileX, y: pos.tileY }, lastDragRect);
@@ -317,6 +319,36 @@ export function createToolMouseHandler(
         if (activeTool === 'road') {
           if (lastDragLine && !dragBlocked) {
             handleRoadLineAction(lastDragLine, onAction);
+          }
+          lastDragLine = null;
+          dragBlocked = false;
+          onHover?.(pos, { x: pos.tileX, y: pos.tileY }, undefined, undefined, false);
+        } else if (activeTool === 'bulldoze') {
+          if (lastDragRect) {
+            onAction({ type: 'BULLDOZE_RECT', rect: lastDragRect });
+          } else if (dragStart) {
+            onAction({ type: 'BULLDOZE', x: dragStart.tileX, y: dragStart.tileY });
+          }
+          lastDragRect = null;
+          dragBlocked = false;
+          onHover?.(pos, { x: pos.tileX, y: pos.tileY }, undefined, undefined, false);
+        } else if (activeTool === 'infra_powerpole') {
+          if (lastDragLine) {
+            onAction({ type: 'PLACE_POWER_POLE_LINE', line: lastDragLine });
+          }
+          lastDragLine = null;
+          dragBlocked = false;
+          onHover?.(pos, { x: pos.tileX, y: pos.tileY }, undefined, undefined, false);
+        } else if (activeTool === 'infra_waterpipe') {
+          if (lastDragLine) {
+            onAction({ type: 'PLACE_WATER_PIPE_LINE', line: lastDragLine });
+          }
+          lastDragLine = null;
+          dragBlocked = false;
+          onHover?.(pos, { x: pos.tileX, y: pos.tileY }, undefined, undefined, false);
+        } else if (activeTool === 'infra_gaspipeline') {
+          if (lastDragLine) {
+            onAction({ type: 'PLACE_GAS_PIPE_LINE', line: lastDragLine });
           }
           lastDragLine = null;
           dragBlocked = false;
@@ -345,18 +377,12 @@ export function createToolMouseHandler(
       onHover?.(pos, pos && pos.tileX !== undefined ? { x: pos.tileX, y: pos.tileY } : null, lastDragRect || undefined, lastDragLine || undefined, dragBlocked);
     },
     onCancel: () => {
-      if (isDragging && activeTool === 'road') {
+      if (isDragging && (activeTool === 'road' || activeTool === 'bulldoze' || activeTool.startsWith('zone_'))) {
         isDragging = false;
         dragStart = undefined;
-        lastDragLine = null;
+        lastDragLine = null; lastDragRect = null;
         dragBlocked = false;
         onHover?.(null, null, undefined, undefined, false);
-      }
-      if (isDragging && activeTool.startsWith('zone_')) {
-        isDragging = false;
-        dragStart = undefined;
-        lastDragRect = null;
-        onHover?.(null, null, undefined);
       }
     }
   };

@@ -20,11 +20,16 @@ export class OrthoRenderer {
   gridGroup = new THREE.Group();
   highlightGroup = new THREE.Group();
   selectionGroup = new THREE.Group();
+  infraGroup = new THREE.Group(); // infrastructure (poles, pipes, lines)
+  groundGroup = new THREE.Group(); // static ground tiles
+  private groundBuilt = false;
   initializedView = false;
   hoveredTile: { x: number; y: number } | null = null;
   // Track the currently active tool so highlight visuals can adapt (e.g., bulldoze = red)
   private activeTool: string | null = null;
   private selectionRect: { x: number; y: number; w: number; h: number; zone?: 'R'|'C'|'I' } | null = null;
+  // Bulldoze rectangle (separate from selectionRect used for zoning to allow different coloring)
+  private bulldozeRect: { x: number; y: number; w: number; h: number } | null = null;
   private roadLine: { x0: number; y0: number; x1: number; y1: number; blocked?: boolean } | null = null;
   panState: PanState = { isPanning: false, lastX: 0, lastY: 0 };
   mapSize = { width: 16, height: 16 };
@@ -54,9 +59,11 @@ export class OrthoRenderer {
     const dir = new THREE.DirectionalLight(0xffffff, 0.4);
     dir.position.set(5,10,7);
     this.scene.add(dir);
-    this.scene.add(this.gridGroup);
+  this.scene.add(this.groundGroup);
+  this.scene.add(this.gridGroup);
     this.scene.add(this.highlightGroup);
   this.scene.add(this.selectionGroup);
+  this.scene.add(this.infraGroup);
 
     this.bindPanEvents();
     window.addEventListener('resize', () => this.onResize());
@@ -263,7 +270,27 @@ export class OrthoRenderer {
       this.selectionGroup.add(line);
     }
 
-    // Road line preview
+    // Bulldoze rectangle preview (draw after zoning so it visually overrides)
+    if (this.bulldozeRect) {
+      const { x, y, w, h } = this.bulldozeRect;
+      const color = 0xff0000;
+      const geom = new THREE.BoxGeometry(w * this.tileSize * 1.08, 0.34, h * this.tileSize * 1.08);
+      const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.18 });
+      const mesh = new THREE.Mesh(geom, mat);
+      const cx = x + (w - 1) / 2;
+      const cy = y + (h - 1) / 2;
+      mesh.position.set(cx * this.tileSize, 0.17, cy * this.tileSize);
+      this.selectionGroup.add(mesh);
+      // Outline
+      const edgeGeom = new THREE.BoxGeometry(w * this.tileSize * 1.08, 0.35, h * this.tileSize * 1.08);
+      const edges = new THREE.EdgesGeometry(edgeGeom as any);
+      const lineMat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.75 });
+      const line = new THREE.LineSegments(edges, lineMat);
+      line.position.copy(mesh.position);
+      this.selectionGroup.add(line);
+    }
+
+  // Road / infrastructure line preview
     if (this.roadLine) {
       const { x0, y0, x1, y1, blocked } = this.roadLine;
       // Bresenham's line algorithm
@@ -281,8 +308,11 @@ export class OrthoRenderer {
         if (e2 < dx) { err += dx; y += sy; }
       }
       // Draw each tile as a semi-transparent box
-      const color = blocked ? 0xff2222 : 0x646cff;
-      const roadMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.35 });
+  let color = blocked ? 0xff2222 : 0x646cff; // default road preview
+  if (this.activeTool === 'infra_powerpole') color = 0xdddddd;
+  else if (this.activeTool === 'infra_waterpipe') color = 0x00bcd4;
+  else if (this.activeTool === 'infra_gaspipeline') color = 0xff9800;
+  const roadMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.35 });
       const roadGeom = new THREE.BoxGeometry(this.tileSize*0.95, 0.09, this.tileSize*0.95);
       for (const t of tiles) {
         const mesh = new THREE.Mesh(roadGeom, roadMat);
@@ -294,6 +324,11 @@ export class OrthoRenderer {
 
   setSelectionRect(rect: { x: number; y: number; w: number; h: number; zone?: 'R'|'C'|'I' } | null) {
     this.selectionRect = rect;
+    this.updateHighlight();
+  }
+
+  setBulldozeRect(rect: { x: number; y: number; w: number; h: number } | null) {
+    this.bulldozeRect = rect;
     this.updateHighlight();
   }
 
@@ -313,20 +348,22 @@ export class OrthoRenderer {
   this.cameraTarget.set(cx, 0, cz);
   this.realignCamera();
   this.onCameraMoved('init');
-      // Simple ground plane
-      const planeGeom = new THREE.PlaneGeometry(w, h, w, h);
-      const planeMat = new THREE.MeshBasicMaterial({ color: 0x111111, wireframe: true });
-      const plane = new THREE.Mesh(planeGeom, planeMat);
-      plane.rotation.x = -Math.PI / 2;
-      plane.position.set(cx, -0.01, cz);
-      this.scene.add(plane);
+  // Build ground tile layer (only once per map size)
+  this.buildGround(w, h);
       this.initializedView = true;
     }
     // Simple rebuild each frame for now (small maps); optimize later.
     this.gridGroup.clear();
+  this.infraGroup.clear();
     const geom = new THREE.BoxGeometry(this.tileSize*0.95, 0.25, this.tileSize*0.95);
     const roadGeom = new THREE.BoxGeometry(this.tileSize*0.95, 0.05, this.tileSize*0.95);
     const roadMat = new THREE.MeshStandardMaterial({ color: 0x555555 });
+  const overlaySel = (document.getElementById('hudOverlay') as HTMLSelectElement);
+  const overlayMode = ((window as any).SIMCITY_OVERLAY_MODE ?? (overlaySel ? overlaySel.value : undefined)) || 'none';
+    // Collect poles first for power line connection rendering
+    const polePositions: { x: number; y: number }[] = [];
+    for (const row of map) for (const tile of row) if (tile.powerPole) polePositions.push({ x: tile.x, y: tile.y });
+
     for (const row of map) {
       for (const tile of row) {
         if (tile.road) {
@@ -334,18 +371,252 @@ export class OrthoRenderer {
           r.position.set(tile.x * this.tileSize, 0.025, tile.y * this.tileSize);
           this.gridGroup.add(r);
         }
-        if (!tile.zone) continue;
-        let color = 0x222222;
-        if (tile.zone === 'R') color = tile.developed ? 0x4caf50 : 0x2e7d32;
-        if (tile.zone === 'C') color = tile.developed ? 0x2196f3 : 0x1565c0;
-        if (tile.zone === 'I') color = tile.developed ? 0xffc107 : 0xb28704;
+
+        // Zone tile rendering (skip only the zone mesh if no zone, but still allow infra below)
+        if (tile.zone) {
+          let color = 0x222222;
+          if (tile.zone === 'R') color = tile.developed ? 0x4caf50 : 0x2e7d32;
+          if (tile.zone === 'C') color = tile.developed ? 0x2196f3 : 0x1565c0;
+          if (tile.zone === 'I') color = tile.developed ? 0xffc107 : 0xb28704;
+        // Overlay tint modifications
+  if (overlayMode === 'pollution') {
+          const p = Math.min(100, tile.pollution || 0);
+          const intensity = p / 100; // 0..1
+          // Blend toward red
+          const r = ((color >> 16) & 0xff);
+          const g = ((color >> 8) & 0xff);
+          const b = (color & 0xff);
+          const nr = Math.min(255, Math.round(r + (255 - r) * intensity));
+          const ng = Math.round(g * (1 - 0.5 * intensity));
+          const nb = Math.round(b * (1 - 0.5 * intensity));
+          color = (nr << 16) | (ng << 8) | nb;
+        } else if (overlayMode === 'landValue') {
+          const lv = Math.min(100, tile.landValue || 0);
+          const tVal = lv / 100; // 0..1
+          // Gradient blue (low) -> green (mid) -> yellow (high)
+          let rC=0, gC=0, bC=0;
+          if (tVal < 0.5) { // blue->green
+            const tt = tVal / 0.5; // 0..1
+            rC = 0;
+            gC = Math.round(128 * tt + 64);
+            bC = Math.round(200 - 200 * tt);
+          } else { // green -> yellow
+            const tt = (tVal - 0.5) / 0.5;
+            rC = Math.round(0 + 200 * tt);
+            gC = 192;
+            bC = Math.round(0 + 0 * tt);
+          }
+          color = (rC << 16) | (gC << 8) | bC;
+        } else if (overlayMode === 'service') {
+          // Service coverage: green if covered, gray if not
+          if (tile.coverage && (tile.coverage.power || tile.coverage.education || tile.coverage.health || tile.coverage.safety)) {
+            color = 0x00ff00;
+          } else {
+            color = 0x444444;
+          }
+        } else if (overlayMode === 'education') {
+          const c = tile.coverage?.education || 0;
+          if (c === 0) color = 0x222222; else {
+            // scale 1..5+ into gradient blue->green->yellow
+            const t = Math.min(1, c / 5);
+            let rC=0, gC=0, bC=0;
+            if (t < 0.5) { // blue->green
+              const tt = t / 0.5;
+              rC = 0;
+              gC = Math.round(200 * tt);
+              bC = Math.round(200 - 150 * tt);
+            } else { // green->yellow
+              const tt = (t - 0.5) / 0.5;
+              rC = Math.round(200 * tt);
+              gC = 200;
+              bC = 50 - Math.round(50 * tt);
+            }
+            color = (rC << 16) | (gC << 8) | bC;
+          }
+        } else if (overlayMode === 'health') {
+          const c = tile.coverage?.health || 0;
+            if (c === 0) color = 0x222222; else {
+              const t = Math.min(1, c / 5);
+              // gradient red->pink->white
+              const rC = 150 + Math.round(105 * t);
+              const gC = Math.round(80 + 150 * t);
+              const bC = Math.round(80 + 150 * t);
+              color = (rC << 16) | (gC << 8) | bC;
+            }
+        } else if (overlayMode === 'safety') {
+          const c = tile.coverage?.safety || 0;
+          if (c === 0) color = 0x222222; else {
+            const t = Math.min(1, c / 5);
+            // gradient dark red -> orange -> bright yellow
+            let rC = Math.round(120 + 135 * t);
+            let gC = Math.round(20 + 200 * t);
+            let bC = Math.round(20 * (1 - t));
+            color = (rC << 16) | (gC << 8) | bC;
+          }
+        } else if (overlayMode === 'gas') {
+          // Gas coverage: orange if covered, gray if not
+          color = tile.coverage?.gas ? 0xff9800 : 0x444444;
+        } else if (overlayMode === 'water') {
+          // Water coverage: cyan if covered, gray if not
+          color = tile.coverage?.water ? 0x00bcd4 : 0x444444;
+        } else if (overlayMode === 'sewage') {
+          // Sewage coverage: purple if covered, gray if not
+          color = tile.coverage?.sewage ? 0x8e24aa : 0x444444;
+        } else if (overlayMode === 'garbage') {
+          // Garbage coverage: yellow if covered, gray if not
+          color = tile.coverage?.garbage ? 0xffeb3b : 0x444444;
+        } else if (overlayMode === 'power') {
+          // Power overlay: blue if powered, dark if not
+          color = tile.powered ? 0x2196f3 : 0x222233;
+        } else if (overlayMode === 'traffic') {
+          // Traffic overlay: yellow/red for high load
+          const load = Math.min(100, tile.trafficLoad || 0);
+          if (load > 0) {
+            const intensity = Math.min(1, load / 10);
+            // Blend yellow to red
+            const r = Math.round(255 * intensity);
+            const g = Math.round(255 * (1 - intensity));
+            color = (r << 16) | (g << 8);
+          }
+        }
         const mat = new THREE.MeshStandardMaterial({ color });
-        const mesh = new THREE.Mesh(geom, mat);
-        mesh.position.set(tile.x * this.tileSize, 0.125, tile.y * this.tileSize);
-        mesh.userData.tile = tile;
-        this.gridGroup.add(mesh);
+          const mesh = new THREE.Mesh(geom, mat);
+          mesh.position.set(tile.x * this.tileSize, 0.125, tile.y * this.tileSize);
+          mesh.userData.tile = tile;
+          this.gridGroup.add(mesh);
+        }
+
+        // Power pole (simple cylinder) above tile regardless of zone
+        if (tile.powerPole) {
+          const poleGeom = new THREE.CylinderGeometry(0.08, 0.1, 1.1, 8);
+          const poleMat = new THREE.MeshStandardMaterial({ color: 0x9e9e9e, metalness: 0.1, roughness: 0.8 });
+          const pole = new THREE.Mesh(poleGeom, poleMat);
+          pole.position.set(tile.x * this.tileSize, 0.55, tile.y * this.tileSize);
+          this.infraGroup.add(pole);
+          // Crossarm
+          const armGeom = new THREE.BoxGeometry(0.5, 0.05, 0.05);
+          const arm = new THREE.Mesh(armGeom, poleMat);
+          arm.position.set(tile.x * this.tileSize, 1.05, tile.y * this.tileSize);
+          this.infraGroup.add(arm);
+          // Insulator nubs
+          const nubGeom = new THREE.CylinderGeometry(0.015, 0.015, 0.06, 6);
+          const nubMat = new THREE.MeshBasicMaterial({ color: 0xeeeeee });
+          const offsets = [-0.2, 0, 0.2];
+          for (const off of offsets) {
+            const nub = new THREE.Mesh(nubGeom, nubMat);
+            nub.rotation.z = Math.PI/2;
+            nub.position.set(tile.x * this.tileSize + off, 1.05, tile.y * this.tileSize);
+            this.infraGroup.add(nub);
+          }
+        }
+
+        // Underground pipes visibility (water -> cyan, gas -> orange) regardless of zone
+        const showWater = tile.waterPipe && (overlayMode === 'water' || this.activeTool === 'infra_waterpipe');
+        const showGas = tile.gasPipe && (overlayMode === 'gas' || this.activeTool === 'infra_gaspipeline');
+        if (showWater || showGas) {
+          const pipeHeight = 0.03;
+          if (showWater) {
+            const matW = new THREE.MeshBasicMaterial({ color: 0x00bcd4 });
+            const eastGeom = new THREE.BoxGeometry(this.tileSize * 0.5, pipeHeight, 0.08);
+            const east = new THREE.Mesh(eastGeom, matW);
+            east.position.set(tile.x * this.tileSize + this.tileSize * 0.25, 0.015, tile.y * this.tileSize + this.tileSize * 0.45);
+            this.infraGroup.add(east);
+            const southGeom = new THREE.BoxGeometry(0.08, pipeHeight, this.tileSize * 0.5);
+            const south = new THREE.Mesh(southGeom, matW);
+            south.position.set(tile.x * this.tileSize + this.tileSize * 0.45, 0.015, tile.y * this.tileSize + this.tileSize * 0.25);
+            this.infraGroup.add(south);
+          }
+          if (showGas) {
+            const matG = new THREE.MeshBasicMaterial({ color: 0xff9800 });
+            const westGeom = new THREE.BoxGeometry(this.tileSize * 0.5, pipeHeight, 0.08);
+            const west = new THREE.Mesh(westGeom, matG);
+            west.position.set(tile.x * this.tileSize - this.tileSize * 0.25, 0.015, tile.y * this.tileSize - this.tileSize * 0.45);
+            this.infraGroup.add(west);
+            const northGeom = new THREE.BoxGeometry(0.08, pipeHeight, this.tileSize * 0.5);
+            const north = new THREE.Mesh(northGeom, matG);
+            north.position.set(tile.x * this.tileSize - this.tileSize * 0.45, 0.015, tile.y * this.tileSize - this.tileSize * 0.25);
+            this.infraGroup.add(north);
+          }
+        }
       }
     }
+
+    // Power line connections (horizontal & vertical within 5 tiles) with sagging catenary-like curve
+    if (polePositions.length) {
+      const maxGap = 5;
+      const poleSet = new Set(polePositions.map(p => p.x + ',' + p.y));
+      const drawn = new Set<string>(); // avoid duplicate both directions
+      const makeKey = (a:{x:number;y:number}, b:{x:number;y:number}) => a.x < b.x || (a.x===b.x && a.y < b.y) ? `${a.x},${a.y}-${b.x},${b.y}` : `${b.x},${b.y}-${a.x},${a.y}`;
+
+      const addSagLine = (ax:number, ay:number, bx:number, by:number) => {
+        const start = new THREE.Vector3(ax * this.tileSize, 0.9, ay * this.tileSize);
+        const end = new THREE.Vector3(bx * this.tileSize, 0.9, by * this.tileSize);
+        const span = start.distanceTo(end);
+        const sag = Math.min(0.35, 0.08 * span); // mild sag proportional to span
+        const points: THREE.Vector3[] = [];
+        const segments = Math.max(8, Math.floor(span * 6));
+        for (let i=0;i<=segments;i++) {
+          const t = i/segments; // 0..1
+          // simple parabolic sag y = base - sag * 4t(1-t)
+            const yOffset = sag * 4 * t * (1 - t); // 0..sag
+          const x = THREE.MathUtils.lerp(start.x, end.x, t);
+          const z = THREE.MathUtils.lerp(start.z, end.z, t);
+          points.push(new THREE.Vector3(x, start.y - yOffset, z));
+        }
+        const geo = new THREE.BufferGeometry().setFromPoints(points);
+        const mat = new THREE.LineBasicMaterial({ color: 0xe0e0e0 });
+        const line = new THREE.Line(geo, mat);
+        this.infraGroup.add(line);
+      };
+
+      for (const p of polePositions) {
+        // Rightward search
+        for (let dx=1; dx<=maxGap; dx++) {
+          const qx = p.x+dx, qy = p.y;
+          if (poleSet.has(qx+','+qy)) {
+            const key = makeKey(p,{x:qx,y:qy});
+            if (!drawn.has(key)) { drawn.add(key); addSagLine(p.x,p.y,qx,qy); }
+            break; // only connect nearest in this direction
+          }
+        }
+        // Downward search
+        for (let dy=1; dy<=maxGap; dy++) {
+          const qx = p.x, qy = p.y+dy;
+          if (poleSet.has(qx+','+qy)) {
+            const key = makeKey(p,{x:qx,y:qy});
+            if (!drawn.has(key)) { drawn.add(key); addSagLine(p.x,p.y,qx,qy); }
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  private buildGround(w: number, h: number) {
+    if (this.groundBuilt) return;
+    this.groundGroup.clear();
+    const tileGeom = new THREE.PlaneGeometry(this.tileSize, this.tileSize);
+    // Subtle color palette for ground variation
+    const palette = [0x2d2f33, 0x303338, 0x34373c, 0x383c42];
+    for (let y=0; y<h; y++) {
+      for (let x=0; x<w; x++) {
+        // deterministic pseudo-random pick based on coordinates
+        const hash = (x * 73856093) ^ (y * 19349663);
+        const color = palette[Math.abs(hash) % palette.length];
+        const mat = new THREE.MeshStandardMaterial({ color, roughness: 1, metalness: 0 });
+        const quad = new THREE.Mesh(tileGeom, mat);
+        quad.rotation.x = -Math.PI/2;
+        quad.position.set(x * this.tileSize, -0.02, y * this.tileSize);
+        this.groundGroup.add(quad);
+      }
+    }
+    // Add a subtle hemisphere light for ambient sky/ground contrast if not already present
+    const hasHemi = this.scene.children.some(c => (c as any).isHemisphereLight);
+    if (!hasHemi) {
+      const hemi = new THREE.HemisphereLight(0xddeeff, 0x222222, 0.35);
+      this.scene.add(hemi);
+    }
+    this.groundBuilt = true;
   }
 
   frame(map: any[][]) {

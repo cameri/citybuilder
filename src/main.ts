@@ -5,8 +5,14 @@ import type { System } from './ecs/system';
 import { addSystem, createWorld, enqueueAction, updateWorld } from './ecs/world';
 import { developmentSystem } from './systems/developmentSystem';
 import { economySystem } from './systems/economySystem';
+import { landValueSystem } from './systems/landValueSystem';
+import { levelingSystem } from './systems/levelingSystem';
 import { manualLoad, manualSave, persistenceSystem } from './systems/persistenceSystem';
+import { pollutionSystem } from './systems/pollutionSystem';
 import { populationSystem } from './systems/populationSystem';
+import { powerDistributionSystem } from './systems/powerDistributionSystem';
+import { serviceCoverageSystem } from './systems/serviceCoverageSystem';
+import { trafficAggregationSystem } from './systems/trafficAggregationSystem';
 import { zoningSystem } from './systems/zoningSystem';
 // New imports for Phase 1 completion
 import { Minimap } from './ui/minimap';
@@ -37,6 +43,12 @@ addSystem(world, zoningSystem);
 addSystem(world, developmentSystem);
 addSystem(world, populationSystem);
 addSystem(world, economySystem);
+addSystem(world, pollutionSystem);
+addSystem(world, landValueSystem);
+addSystem(world, levelingSystem);
+addSystem(world, serviceCoverageSystem);
+addSystem(world, powerDistributionSystem);
+addSystem(world, trafficAggregationSystem);
 addSystem(world, persistenceSystem);
 
 // Demo: enqueue a comprehensive demo city with all zone types
@@ -108,6 +120,25 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
     </label>
     <button id="hudSave" type="button">Save</button>
     <button id="hudLoad" type="button">Load</button>
+  <button id="hudNew" type="button">New</button>
+  <span id="hudClock">--:-- ☀️</span>
+    <label>Overlay:
+      <select id="hudOverlay">
+        <option value="none">None</option>
+        <option value="pollution">Pollution</option>
+        <option value="landValue">Land Value</option>
+        <option value="service">Service Coverage</option>
+  <option value="education">Education</option>
+  <option value="health">Health</option>
+  <option value="safety">Safety</option>
+        <option value="power">Power</option>
+        <option value="traffic">Traffic</option>
+        <option value="gas">Gas</option>
+        <option value="water">Water</option>
+        <option value="sewage">Sewage</option>
+        <option value="garbage">Garbage</option>
+      </select>
+    </label>
   </div>`
 
 // Three.js orthographic renderer
@@ -115,7 +146,7 @@ const rendererContainer = document.getElementById('viewport')!;
 const ortho = new OrthoRenderer(rendererContainer, { tileSize: 1 });
 
 // View controls for camera manipulation
-const viewControls = new ViewControls({ mapSize: { width: 16, height: 16 } });
+const viewControls = new ViewControls({ mapSize: { width: 48, height: 48 } });
 
 // Set up view control callbacks
 viewControls.setOnCenter(() => {
@@ -168,7 +199,7 @@ const toolsPalette = new ToolsPalette(toolsPaletteContainer);
 
 // Zone inspector and minimap
 const zoneInspector = new ZoneInspector();
-const minimap = new Minimap({ width: 16, height: 16 });
+const minimap = new Minimap({ width: 48, height: 48 });
 
 // Connect minimap click-to-pan to camera
 minimap.setOnPanToTile((tileX, tileY) => {
@@ -178,7 +209,7 @@ minimap.setOnPanToTile((tileX, tileY) => {
 });
 
 // Mouse handler for tool interaction
-const mouseHandler = new MouseHandler(rendererContainer, { width: 16, height: 16 });
+const mouseHandler = new MouseHandler(rendererContainer, { width: 48, height: 48 });
 mouseHandler.setCamera(ortho.camera, ortho.scene);
 mouseHandler.setOnCameraPan((deltaX, deltaY) => {
   ortho.panCamera(deltaX, deltaY);
@@ -213,7 +244,7 @@ function applyActiveTool(tool: any) {
         zoneInspector.hideTile();
       }
       // Simple road line preview (no collision detection)
-      if (tool === 'road' && dragLine) {
+  if ((tool === 'road' || tool === 'infra_powerpole' || tool === 'infra_waterpipe' || tool === 'infra_gaspipeline') && dragLine) {
         ortho.setRoadLine(dragLine);
       } else {
         ortho.setRoadLine(null);
@@ -222,8 +253,15 @@ function applyActiveTool(tool: any) {
         let zone: 'R'|'C'|'I' = 'R';
         if (tool === 'zone_commercial') zone = 'C'; else if (tool === 'zone_industrial') zone = 'I';
         ortho.setSelectionRect({ ...dragRect, zone });
+        ortho.setBulldozeRect(null);
       } else {
         ortho.setSelectionRect(null);
+      }
+      if (dragRect && tool === 'bulldoze') {
+        ortho.setBulldozeRect(dragRect);
+      } else if (tool === 'bulldoze') {
+        // clear only if bulldoze tool active but no rect
+        ortho.setBulldozeRect(null);
       }
     },
     { width: 16, height: 16 }
@@ -256,6 +294,7 @@ window.addEventListener('keydown', (e) => {
     // Clear selection preview
     ortho.setSelectionRect(null);
   ortho.setRoadLine(null);
+  ortho.setBulldozeRect(null);
   mouseHandler.cancelCurrentInteraction();
   }
 });
@@ -280,8 +319,11 @@ const hudFunds = () => document.getElementById('hudFunds') as HTMLSpanElement | 
 const hudPop = () => document.getElementById('hudPop') as HTMLSpanElement | null;
 const hudSpeedSel = () => document.getElementById('hudSpeed') as HTMLSelectElement | null;
 const hudTaxInput = () => document.getElementById('hudTax') as HTMLInputElement | null;
+const hudOverlaySel = () => document.getElementById('hudOverlay') as HTMLSelectElement | null;
 const hudSaveBtn = () => document.getElementById('hudSave') as HTMLButtonElement | null;
 const hudLoadBtn = () => document.getElementById('hudLoad') as HTMLButtonElement | null;
+const hudNewBtn = () => document.getElementById('hudNew') as HTMLButtonElement | null;
+const hudClock = () => document.getElementById('hudClock') as HTMLSpanElement | null;
 function bindHud() {
   hudSpeedSel()?.addEventListener('change', e => {
     const val = parseInt((e.target as HTMLSelectElement).value, 10) as 0|1|2|4;
@@ -291,8 +333,32 @@ function bindHud() {
     const v = parseFloat((e.target as HTMLInputElement).value);
     world.taxRate = Math.max(0, Math.min(0.25, v));
   });
+  hudOverlaySel()?.addEventListener('change', e => {
+    const val = (e.target as HTMLSelectElement).value as any;
+    world.overlayMode = val;
+  });
   hudSaveBtn()?.addEventListener('click', () => manualSave(world));
   hudLoadBtn()?.addEventListener('click', () => { manualLoad(world); });
+  hudNewBtn()?.addEventListener('click', () => {
+    // Create a fresh world with new seed while preserving UI state (camera, tool, overlay)
+    const prevCamera = ortho.getCameraState();
+    const prevTool = currentTool;
+    const prevOverlay = (hudOverlaySel()?.value) || 'none';
+    const newWorld = createWorld();
+    // New deterministic seed
+    const seed = Date.now();
+    newWorld.rngSeed = seed;
+    initializeRNG(seed);
+    // Transfer systems
+    newWorld.systems = world.systems; // reuse existing systems list
+    // Replace global world reference
+    world = newWorld;
+    // Recenter / restore camera
+    ortho.initializedView = true;
+    ortho.setCameraState(prevCamera);
+    world.overlayMode = prevOverlay as any;
+    applyActiveTool(prevTool);
+  });
 }
 bindHud();
 function render3D() {
@@ -310,6 +376,20 @@ function render3D() {
     if (popEl) {
       const p = world.population;
       popEl.textContent = `Pop ${p.residents} (Emp ${(p.employmentRate*100).toFixed(0)}%)`;
+    }
+    const clockEl = hudClock();
+    if (clockEl) {
+      // New rule: 1 real simulation second = 1 in-game minute.
+      // simTimeSec already accumulates simulation seconds (after speed scaling).
+      const totalMinutes = Math.floor(world.simTimeSec); // 1 sec -> 1 minute
+      const minutesInDay = 24 * 60;
+      const dayMinutes = totalMinutes % minutesInDay;
+      const hours = Math.floor(dayMinutes / 60);
+      const minutes = dayMinutes % 60;
+      const hh = hours.toString().padStart(2,'0');
+      const mm = minutes.toString().padStart(2,'0');
+      const isNight = hours < 6 || hours >= 18;
+      clockEl.textContent = `${hh}:${mm} ${isNight ? '🌙' : '☀️'}`;
     }
     fpsFrames = 0;
     fpsLast = now;
